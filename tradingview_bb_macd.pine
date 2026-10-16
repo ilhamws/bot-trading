@@ -1,0 +1,255 @@
+//@version=5
+indicator("AI Bot - Bollinger Bands & MACD Candlestick Scanner (All-in-One)", overlay=true)
+
+// ==============================================================================
+// 1. INPUT PARAMETERS (Hanya memakan 1 slot indikator di TradingView Free)
+// ==============================================================================
+// Bollinger Bands Settings
+bbLength = input.int(20, title="Bollinger Bands Periode", minval=1)
+bbMult   = input.float(2.0, title="Bollinger Bands StdDev", minval=0.1, step=0.1)
+
+// MACD Settings
+fastLength   = input.int(12, title="MACD Fast Length")
+slowLength   = input.int(26, title="MACD Slow Length")
+signalLength = input.int(9,  title="MACD Signal Length")
+
+// Konfluensi Sinyal Entry
+minConfluence = input.int(2, title="Minimal Sinyal Konfluensi untuk Entry (Default: 2)", minval=1, maxval=4)
+minCandlePips = input.float(1.8, title="Min Candle Range Pips (Default 1.8 Pips untuk Sesi Asia)", minval=0.5, step=0.1)
+minCandleRange = syminfo.mintick * (minCandlePips * 10)
+
+// ==============================================================================
+// 2. INDICATOR CALCULATIONS
+// ==============================================================================
+// Bollinger Bands
+bbBasis = ta.sma(close, bbLength)
+bbDev   = bbMult * ta.stdev(close, bbLength)
+bbUpper = bbBasis + bbDev
+bbLower = bbBasis - bbDev
+
+// Visualisasi Bollinger Bands di chart
+pBasis = plot(bbBasis, color=color.new(color.orange, 20), title="BB Basis (SMA 20)")
+pUpper = plot(bbUpper, color=color.new(color.blue, 30),   title="BB Upper Band")
+pLower = plot(bbLower, color=color.new(color.blue, 30),   title="BB Lower Band")
+fill(pUpper, pLower, color=color.new(color.blue, 92), title="BB Background")
+
+// MACD Calculation
+[macdLine, signalLine, histLine] = ta.macd(close, fastLength, slowLength, signalLength)
+macdCrossBullish = ta.crossover(macdLine, signalLine)
+macdCrossBearish = ta.crossunder(macdLine, signalLine)
+
+// Trend & RSI Context for Pattern Validation
+ema20  = ta.ema(close, 20)
+ema50  = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+rsiVal = ta.rsi(close, 14)
+
+// ==============================================================================
+// 3. CANDLESTICK PATTERN & REJECTION LOGIC
+// ==============================================================================
+bodySize    = math.abs(close - open)
+candleRange = high - low
+upperShadow = high - math.max(open, close)
+lowerShadow = math.min(open, close) - low
+
+// Rejeksi Bollinger Bands
+bbLowerTouch = (low <= bbLower or low[1] <= bbLower) and close > bbLower
+bbUpperTouch = (high >= bbUpper or high[1] >= bbUpper) and close < bbUpper
+
+// Ciri Anatomi Fisik Mutlak Pin Bar Sumbu Atas (Inverted Hammer & Shooting Star):
+// 1. Sumbu atas panjang (upperShadow >= 2.0 * bodySize dan >= 0.5 * candleRange)
+// 2. Toleransi bayangan bawah sangat kecil (lowerShadow <= math.max(0.12 * candleRange, syminfo.mintick * 6))
+// 3. Body kecil di bagian dasar (bodySize <= 0.38 * candleRange)
+// 4. Rentang candle signifikan (candleRange >= minCandleRange)
+hasPinTopShape = (upperShadow >= 2.0 * bodySize) and (upperShadow >= 0.50 * candleRange) and (lowerShadow <= math.max(0.12 * candleRange, syminfo.mintick * 6)) and (bodySize > 0) and (bodySize <= 0.38 * candleRange) and (candleRange >= minCandleRange)
+
+// Ciri Anatomi Fisik Mutlak Pin Bar Sumbu Bawah (Hammer & Hanging Man):
+// 1. Sumbu bawah panjang (lowerShadow >= 2.0 * bodySize dan >= 0.5 * candleRange)
+// 2. Toleransi bayangan atas sangat kecil (upperShadow <= math.max(0.12 * candleRange, syminfo.mintick * 6))
+// 3. Body kecil di bagian puncak atas (bodySize <= 0.38 * candleRange)
+// 4. Rentang candle signifikan (candleRange >= minCandleRange)
+hasPinBottomShape = (lowerShadow >= 2.0 * bodySize) and (lowerShadow >= 0.50 * candleRange) and (upperShadow <= math.max(0.12 * candleRange, syminfo.mintick * 6)) and (bodySize > 0) and (bodySize <= 0.38 * candleRange) and (candleRange >= minCandleRange)
+
+// Zone check for Reversal patterns:
+bbLowerZone = (math.min(low, low[1]) <= (bbBasis + bbLower) / 2) or (math.min(low, low[1]) <= bbLower + syminfo.mintick * 2)
+swingLowTest = (math.min(low, low[1]) <= math.min(low[2], low[3]) + syminfo.mintick * 2)
+isSupportZone = bbLowerZone or swingLowTest
+
+bbUpperZone = (math.max(high, high[1]) >= (bbBasis + bbUpper) / 2) or (math.max(high, high[1]) >= bbUpper - syminfo.mintick * 2)
+swingHighTest = (math.max(high, high[1]) >= math.max(high[2], high[3]) - syminfo.mintick * 2)
+isResistanceZone = bbUpperZone or swingHighTest
+
+// Micro-trend anti-rally / anti-selloff checks:
+isActivelyRising = (low >= low[2] - syminfo.mintick * 2) and (low[1] >= low[3] - syminfo.mintick * 2) and (low[2] >= low[4] - syminfo.mintick * 2) and (close > close[3])
+isActivelyFalling = (high <= high[2] + syminfo.mintick * 2) and (high[1] <= high[3] + syminfo.mintick * 2) and (high[2] <= high[4] + syminfo.mintick * 2) and (close < close[3])
+
+// Konteks Tren Reversal
+isMinorDowntrend = (close[1] < open[1]) or (close[1] < close[2]) or (low < low[1]) or (close < ema20)
+isDowntrendCtx   = (rsiVal <= 50.0) and not isActivelyRising and isSupportZone and isMinorDowntrend
+
+isMinorUptrend   = (close[1] > open[1]) or (close[1] > close[2]) or (high > high[1]) or (close > ema20)
+isUptrendCtx     = (rsiVal >= 50.0) and not isActivelyFalling and isResistanceZone and isMinorUptrend
+
+// 1. Pola Candlestick Reversal & Continuation Grade-A (>70% Akurasi)
+// [1] Bullish & Bearish Engulfing (Formasi 2-Candle: Body menelan candle sebelumnya secara penuh di Zona Support/Resistance - BUKAN Doji)
+isBullishEngulfing = isDowntrendCtx and (close[1] < open[1]) and (close > open) and (bodySize[1] >= minCandleRange * 0.35) and (bodySize[1] >= 0.30 * candleRange[1]) and (bodySize[1] >= 0.25 * bodySize) and (close >= open[1] - syminfo.mintick * 2) and (open <= close[1] + syminfo.mintick * 2) and (bodySize >= bodySize[1] * 1.25) and (bodySize >= 0.45 * candleRange) and isSupportZone
+isBearishEngulfing = isUptrendCtx and (close[1] > open[1]) and (close < open) and (bodySize[1] >= minCandleRange * 0.35) and (bodySize[1] >= 0.30 * candleRange[1]) and (bodySize[1] >= 0.25 * bodySize) and (close <= open[1] + syminfo.mintick * 2) and (open >= close[1] - syminfo.mintick * 2) and (bodySize >= bodySize[1] * 1.25) and (bodySize >= 0.45 * candleRange) and isResistanceZone
+
+// [2] Pin Bar Reversal (Formasi 1-Candle Mutually Exclusive)
+isHammer         = hasPinBottomShape and isDowntrendCtx and (rsiVal <= 50.0) and not isBullishEngulfing
+isShootingStar   = hasPinTopShape and isUptrendCtx and (rsiVal >= 50.0) and (high >= (bbBasis + bbUpper) / 2 or close >= bbUpper or high >= high[1]) and not isBearishEngulfing and not (close <= open[1] and open >= close[1])
+
+isInvertedHammer = hasPinTopShape and isDowntrendCtx and (rsiVal <= 50.0) and (low <= (bbBasis + bbLower) / 2 or close <= bbLower or low <= low[1]) and not isBullishEngulfing and not (close >= open[1] and open <= close[1])
+isHangingMan     = hasPinBottomShape and isUptrendCtx and (rsiVal >= 50.0) and not isBearishEngulfing
+
+// [4] Piercing Line & Dark Cloud Cover (~72% Akurasi)
+isPiercingLine   = (close[1] < open[1]) and (close > open) and (close >= (open[1] + close[1]) / 2) and (close < open[1])
+isDarkCloudCover = (close[1] > open[1]) and (close < open) and (close <= (open[1] + close[1]) / 2) and (close > open[1])
+
+// [5] Tweezer Bottom & Tweezer Top (~70% Akurasi - Presisi Puncak Kembar)
+twBottomDiff = math.abs(low - low[1])
+twBottomMax  = math.max(math.min(candleRange, candleRange[1]) * 0.15, syminfo.mintick * 6)
+isTweezerBottom = isDowntrendCtx and (math.max(candleRange, candleRange[1]) >= minCandleRange) and (math.min(candleRange, candleRange[1]) >= minCandleRange * 0.40) and (twBottomDiff <= twBottomMax) and (low >= low[1] - syminfo.mintick * 4) and (lowerShadow >= 0.25 * candleRange) and (lowerShadow >= minCandleRange * 0.20) and (lowerShadow >= upperShadow * 0.8) and (close[1] <= open[1] + syminfo.mintick * 2) and (close >= open - syminfo.mintick * 2) and isSupportZone
+
+twTopDiff = math.abs(high - high[1])
+twTopMax  = math.max(math.min(candleRange, candleRange[1]) * 0.15, syminfo.mintick * 6)
+isTweezerTop = isUptrendCtx and (math.max(candleRange, candleRange[1]) >= minCandleRange) and (math.min(candleRange, candleRange[1]) >= minCandleRange * 0.40) and (twTopDiff <= twTopMax) and (high <= high[1] + syminfo.mintick * 4) and (upperShadow >= 0.25 * candleRange) and (upperShadow >= minCandleRange * 0.20) and (upperShadow >= lowerShadow * 0.8) and (close[1] >= open[1] - syminfo.mintick * 2) and (close <= open + syminfo.mintick * 2) and isResistanceZone
+
+// [6] Morning Star & Evening Star Reversal
+isMorningStar = (close[2] < open[2]) and (bodySize[1] < bodySize[2] * 0.5) and (close > open) and (close > (open[2] + close[2]) / 2)
+isEveningStar = (close[2] > open[2]) and (bodySize[1] < bodySize[2] * 0.5) and (close < open) and (close < (open[2] + close[2]) / 2)
+
+// [7] Three White Soldiers & Three Black Crows (~73% Akurasi - Anti Bull/Bear Trap)
+isThreeWhiteSoldiers = (low[2] <= bbBasis or close[2] <= ema20) and (close < bbUpper) and (close > open) and (close[1] > open[1]) and (close[2] > open[2]) and (close > close[1]) and (close[1] > close[2]) and ((high - close) <= 0.25 * candleRange)
+isThreeBlackCrows    = (high[2] >= bbBasis or close[2] >= ema20) and (close > bbLower) and (close < open) and (close[1] < open[1]) and (close[2] < open[2]) and (close < close[1]) and (close[1] < close[2]) and ((close - low) <= 0.25 * candleRange)
+
+// [8] Bullish & Bearish Kicker (~75% Akurasi Eksplosif - Wajib Ada Gap)
+isBullishKicker = (close[1] < open[1]) and (close > open) and (open >= open[1] + syminfo.mintick * 2) and (low >= open[1] - syminfo.mintick * 2) and (bodySize >= minCandleRange * 0.8) and ((close - open) >= (open[1] - close[1]) * 0.9)
+isBearishKicker = (close[1] > open[1]) and (close < open) and (open <= open[1] - syminfo.mintick * 2) and (high <= open[1] + syminfo.mintick * 2) and (bodySize >= minCandleRange * 0.8) and ((open - close) >= (close[1] - open[1]) * 0.9)
+
+// [8.5] Bullish & Bearish Harami (~72% Akurasi - 2-Candle Inside Reversal - BUKAN Doji)
+isBullishHarami = isDowntrendCtx and (close[1] < open[1]) and (bodySize[1] >= minCandleRange * 0.35) and (close > open) and (open >= close[1] - syminfo.mintick * 2) and (close <= open[1] + syminfo.mintick * 2) and (bodySize >= 0.35 * candleRange) and (bodySize >= minCandleRange * 0.35) and (bodySize <= math.max(bodySize[1] * 0.80, candleRange[1] * 0.50)) and isSupportZone
+isBearishHarami = isUptrendCtx and (close[1] > open[1]) and (bodySize[1] >= minCandleRange * 0.35) and (close < open) and (open <= close[1] + syminfo.mintick * 2) and (close >= open[1] - syminfo.mintick * 2) and (bodySize >= 0.35 * candleRange) and (bodySize >= minCandleRange * 0.35) and (bodySize <= math.max(bodySize[1] * 0.80, candleRange[1] * 0.50)) and isResistanceZone
+
+// [9] Three Inside Up & Three Inside Down (~71% Akurasi - Confirmed Harami)
+isThreeInsideUp   = (close[2] < open[2]) and (close[1] > open[1]) and (open[1] >= close[2]) and (close[1] <= open[2]) and (close > open[2])
+isThreeInsideDown = (close[2] > open[2]) and (close[1] < open[1]) and (open[1] <= close[2]) and (close[1] >= open[2]) and (close < open[2])
+
+// [10] Abandoned Baby Bullish & Bearish (~78% Akurasi - Wajib Ada Gap Dua Arah)
+isBullishAbandonedBaby = (close[2] < open[2]) and (bodySize[1] <= candleRange[1] * 0.2) and (candleRange[1] >= minCandleRange * 0.3) and (math.max(open[1], close[1]) < close[2] - syminfo.mintick) and (close > open) and (math.min(open, close) > math.max(open[1], close[1]) + syminfo.mintick) and (close > (open[2] + close[2]) / 2)
+isBearishAbandonedBaby = (close[2] > open[2]) and (bodySize[1] <= candleRange[1] * 0.2) and (candleRange[1] >= minCandleRange * 0.3) and (math.min(open[1], close[1]) > close[2] + syminfo.mintick) and (close < open) and (math.max(open, close) < math.min(open[1], close[1]) - syminfo.mintick) and (close < (open[2] + close[2]) / 2)
+
+// [11] Rising & Falling Three Methods (~74% Akurasi - Trend Continuation)
+isRisingThreeMethods  = (close[4] > open[4]) and (high[1] <= high[4]) and (low[1] >= low[4]) and (high[2] <= high[4]) and (low[2] >= low[4]) and (high[3] <= high[4]) and (low[3] >= low[4]) and (close > open) and (close > close[4])
+isFallingThreeMethods = (close[4] < open[4]) and (high[1] <= high[4]) and (low[1] >= low[4]) and (high[2] <= high[4]) and (low[2] >= low[4]) and (high[3] <= high[4]) and (low[3] >= low[4]) and (close < open) and (close < close[4])
+
+// [12] MACD Cross & Momentum Signals
+isMacdGoldenCross = macdCrossBullish or ta.crossover(macdLine, signalLine)
+isMacdDeathCross  = macdCrossBearish or ta.crossunder(macdLine, signalLine)
+
+// ==============================================================================
+// 4. ATURAN KONFLUENSI SINYAL (POLA + ZONA BB + MOMENTUM MACD)
+// ==============================================================================
+// Evaluasi Pola Bullish
+bullPatternDetected = isBullishEngulfing or isHammer or isInvertedHammer or isMorningStar or isPiercingLine or isTweezerBottom or isBullishHarami or isThreeWhiteSoldiers or isBullishKicker or isThreeInsideUp or isBullishAbandonedBaby or isRisingThreeMethods
+bbBullZone          = (close <= bbBasis) and (low <= bbLower or low[1] <= bbLower or low <= (bbBasis + bbLower) / 2)
+macdBullConfirm     = isMacdGoldenCross or histLine > 0 or histLine > histLine[1] or macdLine > signalLine
+
+// Evaluasi Pola Bearish
+bearPatternDetected = isBearishEngulfing or isShootingStar or isHangingMan or isEveningStar or isDarkCloudCover or isTweezerTop or isBearishHarami or isThreeBlackCrows or isBearishKicker or isThreeInsideDown or isBearishAbandonedBaby or isFallingThreeMethods
+bbBearZone          = (close >= bbBasis) and (high >= bbUpper or high[1] >= bbUpper or high >= (bbBasis + bbUpper) / 2)
+macdBearConfirm     = isMacdDeathCross or histLine < 0 or histLine < histLine[1] or macdLine < signalLine
+
+// Total Konfluensi
+bullCount = (bullPatternDetected ? 1 : 0) + (bbBullZone ? 1 : 0) + (macdBullConfirm ? 1 : 0) + (isMacdGoldenCross ? 1 : 0) + (bbLowerTouch ? 1 : 0)
+bearCount = (bearPatternDetected ? 1 : 0) + (bbBearZone ? 1 : 0) + (macdBearConfirm ? 1 : 0) + (isMacdDeathCross ? 1 : 0) + (bbUpperTouch ? 1 : 0)
+
+// Anti-Pullback Filter: Dilarang SELL jika Uptrend mayor + MACD Bullish + RSI belum overbought ekstrem (< 70) kecuali pola mayor
+bearAllowed = not (close > ema200 and macdLine > signalLine and rsiVal < 70.0 and not isBearishEngulfing and not isShootingStar)
+bullAllowed = not (close < ema200 and macdLine < signalLine and rsiVal > 30.0 and not isBullishEngulfing and not isHammer)
+
+// Sinyal aktif jika minimal konfluensi terpenuhi dan ada pola atau MACD cross (Anti-Bull Trap di Upper Band & Anti-Bear Trap di Lower Band)
+bullSignal = bullCount >= minConfluence and (bullPatternDetected or isMacdGoldenCross) and (close < bbUpper) and bullAllowed
+bearSignal = bearCount >= minConfluence and (bearPatternDetected or isMacdDeathCross) and (close > bbLower) and bearAllowed
+
+patternDetected = bullSignal or bearSignal
+
+// Format string ringkasan pola konfluensi
+string detectedPattern = "Netral"
+if bullSignal
+    detectedPattern := "BUY (" + str.tostring(bullCount) + " Konfluensi): "
+    if isBullishEngulfing
+        detectedPattern := detectedPattern + "[Bullish Engulfing] "
+    if isHammer
+        detectedPattern := detectedPattern + "[Hammer] "
+    if isInvertedHammer
+        detectedPattern := detectedPattern + "[Inverted Hammer] "
+    if isMorningStar
+        detectedPattern := detectedPattern + "[Morning Star] "
+    if isPiercingLine
+        detectedPattern := detectedPattern + "[Piercing Line] "
+    if isTweezerBottom
+        detectedPattern := detectedPattern + "[Tweezer Bottom] "
+    if isBullishHarami
+        detectedPattern := detectedPattern + "[Bullish Harami] "
+    if isThreeWhiteSoldiers
+        detectedPattern := detectedPattern + "[Three White Soldiers] "
+    if isBullishKicker
+        detectedPattern := detectedPattern + "[Bullish Kicker] "
+    if isThreeInsideUp
+        detectedPattern := detectedPattern + "[Three Inside Up] "
+    if isBullishAbandonedBaby
+        detectedPattern := detectedPattern + "[Bullish Abandoned Baby] "
+    if isRisingThreeMethods
+        detectedPattern := detectedPattern + "[Rising Three Methods] "
+    if isMacdGoldenCross
+        detectedPattern := detectedPattern + "[MACD Golden Cross] "
+else if bearSignal
+    detectedPattern := "SELL (" + str.tostring(bearCount) + " Konfluensi): "
+    if isBearishEngulfing
+        detectedPattern := detectedPattern + "[Bearish Engulfing] "
+    if isShootingStar
+        detectedPattern := detectedPattern + "[Shooting Star] "
+    if isHangingMan
+        detectedPattern := detectedPattern + "[Hanging Man] "
+    if isEveningStar
+        detectedPattern := detectedPattern + "[Evening Star] "
+    if isDarkCloudCover
+        detectedPattern := detectedPattern + "[Dark Cloud Cover] "
+    if isTweezerTop
+        detectedPattern := detectedPattern + "[Tweezer Top] "
+    if isBearishHarami
+        detectedPattern := detectedPattern + "[Bearish Harami] "
+    if isThreeBlackCrows
+        detectedPattern := detectedPattern + "[Three Black Crows] "
+    if isBearishKicker
+        detectedPattern := detectedPattern + "[Bearish Kicker] "
+    if isThreeInsideDown
+        detectedPattern := detectedPattern + "[Three Inside Down] "
+    if isBearishAbandonedBaby
+        detectedPattern := detectedPattern + "[Bearish Abandoned Baby] "
+    if isFallingThreeMethods
+        detectedPattern := detectedPattern + "[Falling Three Methods] "
+    if isMacdDeathCross
+        detectedPattern := detectedPattern + "[MACD Death Cross] "
+
+// ==============================================================================
+// 5. SHAPES / PENANDA VISUAL DI CHART
+// ==============================================================================
+plotshape(bullSignal, title="Sinyal BUY (Konfluensi >= 2)", location=location.belowbar, color=color.green, style=shape.triangleup, size=size.small, text="BUY")
+plotshape(bearSignal, title="Sinyal SELL (Konfluensi >= 2)", location=location.abovebar, color=color.red,   style=shape.triangledown, size=size.small, text="SELL")
+
+// ==============================================================================
+// 5. WEBHOOK ALERT (JSON DISPATCH PADA BAR CLOSE)
+// ==============================================================================
+if barstate.isconfirmed and patternDetected
+    macdState = macdLine > signalLine ? "MACD Bullish (di atas sinyal)" : "MACD Bearish (di bawah sinyal)"
+    bbState   = close > bbBasis ? "Harga di atas Tengah BB (Upper Half)" : "Harga di bawah Tengah BB (Lower Half)"
+    
+    indicatorSummary = "Pola: " + detectedPattern + " | Bollinger Bands: " + bbState + " | MACD: " + macdState
+    notesDetail      = "Open: " + str.tostring(open) + ", High: " + str.tostring(high) + ", Low: " + str.tostring(low) + ", Close: " + str.tostring(close) + ", BB_Upper: " + str.tostring(math.round(bbUpper, 4)) + ", BB_Lower: " + str.tostring(math.round(bbLower, 4)) + ", Hist_MACD: " + str.tostring(math.round(histLine, 4))
+    
+    tfClean          = timeframe.isminutes ? str.tostring(timeframe.multiplier) + "m" : timeframe.period
+    jsonAlert        = '{"symbol": "' + syminfo.ticker + '", "timeframe": "' + tfClean + '", "price": ' + str.tostring(close) + ', "indicator_status": "' + indicatorSummary + '", "notes": "' + notesDetail + '", "strategy": "BB + MACD Candlestick AI Scanner"}'
+    
+    alert(jsonAlert, alert.freq_once_per_bar_close)

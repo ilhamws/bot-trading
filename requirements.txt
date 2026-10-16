@@ -1,0 +1,13 @@
+pydantic>=2.7.0
+pydantic-settings>=2.2.0
+python-dotenv>=1.0.1
+chromadb>=0.5.0
+google-genai>=0.1.1
+pypdf>=4.2.0
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+python-telegram-bot>=21.0
+httpx>=0.27.0
+yfinance>=0.2.38
+websocket-client>=1.8.0
+tvdatafeed @ git+https://github.com/rongardF/tvdatafeed.git

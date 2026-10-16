@@ -1,0 +1,46 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Virtual Environments
+.venv/
+venv/
+ENV/
+
+# Secrets & Environment Variables (CRITICAL)
+.env
+*.env
+!.env.example
+
+# Local SQLite active database & temporary logs
+signals.db
+signals.db-journal
+signals.db-wal
+signals.db-shm
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.log
+logs/
+
+# Order Queue payloads (preserve folders via .gitkeep)
+orders_queue/pending/*
+!orders_queue/pending/.gitkeep
+orders_queue/executed/*
+!orders_queue/executed/.gitkeep
+orders_queue/failed/*
+!orders_queue/failed/.gitkeep
+orders_queue/outcomes/*
+!orders_queue/outcomes/.gitkeep
+
+# OS & Editor generated files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
