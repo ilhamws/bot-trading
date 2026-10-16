@@ -6,6 +6,8 @@ and calculates dynamic volatility metrics (ATR).
 """
 
 from typing import Dict, Any, List, Optional, Tuple
+import os
+import json
 import pandas as pd
 import numpy as np
 
@@ -35,8 +37,43 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
 class SMCEngine:
     """Quantitative SMC detector integrating ICT institutional mechanics."""
 
-    def __init__(self, swing_length: int = 5) -> None:
+    def __init__(self, swing_length: int = 5, manual_levels_file: Optional[str] = None) -> None:
         self.swing_length = swing_length
+        self.manual_levels_file = manual_levels_file or os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), "manual_levels.json"
+        )
+        self.manual_levels: Dict[str, List[float]] = {}
+        self._last_mtime: float = 0.0
+        self.load_manual_levels()
+
+    def load_manual_levels(self) -> None:
+        """Load or refresh manual support/resistance levels from JSON."""
+        if not os.path.exists(self.manual_levels_file):
+            return
+        try:
+            mtime = os.path.getmtime(self.manual_levels_file)
+            if mtime > self._last_mtime:
+                with open(self.manual_levels_file, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    self.manual_levels = {str(k).upper(): [float(x) for x in v] for k, v in data.items()}
+                self._last_mtime = mtime
+        except Exception:
+            pass
+
+    def get_manual_levels(self, symbol: Optional[str] = None) -> List[float]:
+        """Get manual levels for symbol (case-insensitive) plus general levels."""
+        self.load_manual_levels()
+        if not symbol:
+            all_lvls: List[float] = []
+            for lvls in self.manual_levels.values():
+                all_lvls.extend(lvls)
+            return sorted(list(set(all_lvls)))
+
+        sym_clean = symbol.upper().replace("/", "").replace("_", "")
+        for k, v in self.manual_levels.items():
+            if k.upper().replace("/", "").replace("_", "") == sym_clean:
+                return [float(x) for x in v]
+        return []
 
     def _find_nearest_resistance(
         self,
@@ -45,9 +82,15 @@ class SMCEngine:
         unmit_bear_fvg: Optional[pd.DataFrame] = None,
         unmit_bear_ob: Optional[pd.DataFrame] = None,
         cur_idx: int = -1,
+        symbol: Optional[str] = None,
     ) -> Optional[float]:
         """Find the nearest structural resistance level above curr_price."""
         levels: List[float] = []
+
+        # 0. User Defined Manual Key Levels
+        for lvl in self.get_manual_levels(symbol):
+            if lvl > curr_price:
+                levels.append(lvl)
 
         # 1. Fractal Swing Highs (3-bar fractal over last 40 bars)
         highs = df_norm["high"]
@@ -89,9 +132,15 @@ class SMCEngine:
         unmit_bull_fvg: Optional[pd.DataFrame] = None,
         unmit_bull_ob: Optional[pd.DataFrame] = None,
         cur_idx: int = -1,
+        symbol: Optional[str] = None,
     ) -> Optional[float]:
         """Find the nearest structural support level below curr_price."""
         levels: List[float] = []
+
+        # 0. User Defined Manual Key Levels
+        for lvl in self.get_manual_levels(symbol):
+            if lvl < curr_price:
+                levels.append(lvl)
 
         # 1. Fractal Swing Lows (3-bar fractal over last 40 bars)
         lows = df_norm["low"]
@@ -126,7 +175,7 @@ class SMCEngine:
 
         return max(levels) if levels else None
 
-    def analyze(self, df: pd.DataFrame, cur_idx: int = -1) -> Dict[str, Any]:
+    def analyze(self, df: pd.DataFrame, cur_idx: int = -1, symbol: Optional[str] = None) -> Dict[str, Any]:
         """Run comprehensive SMC and ATR analysis on OHLCV DataFrame."""
         if len(df) < 25:
             return {
@@ -268,41 +317,45 @@ class SMCEngine:
 
         # A. BUY TP: Evaluasi Resistance Terdekat
         buy_sl = round(curr_price - sl_distance, 5)
-        nearest_res = self._find_nearest_resistance(df_norm, curr_price, unmit_bear_fvg, unmit_bear_ob, cur_idx)
+        nearest_res = self._find_nearest_resistance(df_norm, curr_price, unmit_bear_fvg, unmit_bear_ob, cur_idx, symbol=symbol)
         buy_tp_mode = "Default 1.5x SL"
         if nearest_res is not None and nearest_res > curr_price + buffer:
             raw_res_dist = nearest_res - curr_price
             front_run_res_dist = raw_res_dist - buffer
             rr_res = front_run_res_dist / sl_distance
+            is_manual_res = nearest_res in self.get_manual_levels(symbol)
+            source_tag = " (Manual)" if is_manual_res else ""
             # Zona Ideal (R:R 1.25x - 1.85x): Geser TP ke Resistance
             if 1.25 <= rr_res <= 1.85:
                 buy_tp = round(curr_price + front_run_res_dist, 5)
-                buy_tp_mode = f"Adaptive Resistance ({nearest_res:.5f}, R:R 1:{rr_res:.2f})"
-                smc_details.append(f"TP BUY dialihkan ke Resistance: {nearest_res:.5f} (R:R 1:{rr_res:.2f})")
+                buy_tp_mode = f"Adaptive Resistance{source_tag} ({nearest_res:.5f}, R:R 1:{rr_res:.2f})"
+                smc_details.append(f"TP BUY dialihkan ke Resistance{source_tag}: {nearest_res:.5f} (R:R 1:{rr_res:.2f})")
             else:
                 buy_tp = round(curr_price + default_tp_dist, 5)
                 if rr_res < 1.25:
-                    smc_details.append(f"Resistance terdekat terlalu dekat ({nearest_res:.5f}, R:R 1:{rr_res:.2f}) -> Kunci TP Default 1.5x")
+                    smc_details.append(f"Resistance terdekat{source_tag} terlalu dekat ({nearest_res:.5f}, R:R 1:{rr_res:.2f}) -> Kunci TP Default 1.5x")
         else:
             buy_tp = round(curr_price + default_tp_dist, 5)
 
         # B. SELL TP: Evaluasi Support Terdekat
         sell_sl = round(curr_price + sl_distance, 5)
-        nearest_sup = self._find_nearest_support(df_norm, curr_price, unmit_bull_fvg, unmit_bull_ob, cur_idx)
+        nearest_sup = self._find_nearest_support(df_norm, curr_price, unmit_bull_fvg, unmit_bull_ob, cur_idx, symbol=symbol)
         sell_tp_mode = "Default 1.5x SL"
         if nearest_sup is not None and nearest_sup < curr_price - buffer:
             raw_sup_dist = curr_price - nearest_sup
             front_run_sup_dist = raw_sup_dist - buffer
             rr_sup = front_run_sup_dist / sl_distance
+            is_manual_sup = nearest_sup in self.get_manual_levels(symbol)
+            source_tag = " (Manual)" if is_manual_sup else ""
             # Zona Ideal (R:R 1.25x - 1.85x): Geser TP ke Support
             if 1.25 <= rr_sup <= 1.85:
                 sell_tp = round(curr_price - front_run_sup_dist, 5)
-                sell_tp_mode = f"Adaptive Support ({nearest_sup:.5f}, R:R 1:{rr_sup:.2f})"
-                smc_details.append(f"TP SELL dialihkan ke Support: {nearest_sup:.5f} (R:R 1:{rr_sup:.2f})")
+                sell_tp_mode = f"Adaptive Support{source_tag} ({nearest_sup:.5f}, R:R 1:{rr_sup:.2f})"
+                smc_details.append(f"TP SELL dialihkan ke Support{source_tag}: {nearest_sup:.5f} (R:R 1:{rr_sup:.2f})")
             else:
                 sell_tp = round(curr_price - default_tp_dist, 5)
                 if rr_sup < 1.25:
-                    smc_details.append(f"Support terdekat terlalu dekat ({nearest_sup:.5f}, R:R 1:{rr_sup:.2f}) -> Kunci TP Default 1.5x")
+                    smc_details.append(f"Support terdekat{source_tag} terlalu dekat ({nearest_sup:.5f}, R:R 1:{rr_sup:.2f}) -> Kunci TP Default 1.5x")
         else:
             sell_tp = round(curr_price - default_tp_dist, 5)
 

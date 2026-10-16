@@ -34,10 +34,11 @@
 * **Jarak Take Profit (TP) & Algoritma Adaptif S/R:**
   * **Target Default:** $1.5\times$ dari jarak SL (Rasio Risk to Reward **1 : 1.5**, minimal 6.8 pips).
   * **Algoritma Geser Resistance/Support Terdekat (`smc_engine.py`):**
-    * Sebelum mengunci TP, bot memindai Resistance (BUY) atau Support (SELL) terdekat dari Swing High/Low fraktal, FVG, dan Order Block.
-    * **Zona Ideal ($1.3\times - 1.8\times$ SL):** TP dialihkan ke level struktural tersebut dengan buffer front-running 1.0 pip.
-    * **Level Terlalu Dekat ($< 1.2\times$ SL):** Tetap entry dengan **mengunci TP default di $1.5\times$ SL** (mengantisipasi breakout tanpa memotong R:R).
-    * **Level Jauh ($> 1.8\times$ SL) / Tidak Ada Level:** Tetap mengunci TP default di **$1.5\times$ SL**.
+    * Sebelum mengunci TP, bot memindai Resistance (BUY) atau Support (SELL) terdekat dari Swing High/Low fraktal, FVG, Order Block, serta **Level Kunci Manual (`manual_levels.json`)**.
+    * **Level Kunci Manual Terdaftar (EURUSD):** `1.12685` (Resistance Mayor), `1.12608` (Resistance Minor/Flip), `1.12488` (Support Kunci RBS), `1.12406` (Support Mayor/Base Demand).
+    * **Zona Ideal ($1.25\times - 1.85\times$ SL):** TP dialihkan ke level struktural/manual tersebut dengan buffer front-running 1.0 pip.
+    * **Level Terlalu Dekat ($< 1.25\times$ SL):** Tetap entry dengan **mengunci TP default di $1.5\times$ SL** (mengantisipasi breakout tanpa memotong R:R).
+    * **Level Jauh ($> 1.85\times$ SL) / Tidak Ada Level:** Tetap mengunci TP default di **$1.5\times$ SL**.
 * **Anti-Slippage Dynamic Anchoring (`mt5_bridge.py`):**
   * Jarak SL dan TP dihitung ulang berdasarkan harga riil eksekusi (`Ask` untuk BUY, `Bid` untuk SELL) dengan batas minimum SL terkunci $\ge 4.5$ pips dan TP adaptif diizinkan pada rentang $\ge 1.25\times$ hingga $1.85\times$ SL (fallback default $1.5\times$).
 * **Filter Mutlak Institusional & Proteksi Modal:**

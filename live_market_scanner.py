@@ -1187,7 +1187,7 @@ class LiveMarketScanner:
             bull_matches.append("Stochastic (8,3,3) Oversold / Bullish Cross")
 
         # Konfluensi Institusional Smart Money Concepts (SMC) & ICT
-        smc_data = smc_engine.analyze(df, cur_idx=cur_idx)
+        smc_data = smc_engine.analyze(df, cur_idx=cur_idx, symbol=symbol)
         for b_conf in smc_data.get("bull_confluences", []):
             bull_matches.append(b_conf)
 
