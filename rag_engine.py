@@ -3,6 +3,7 @@
 from typing import List, Dict, Any, Optional, Literal
 from pathlib import Path
 import json
+import time
 import re
 from pydantic import BaseModel, Field
 import chromadb
@@ -644,7 +645,8 @@ Ensure all required fields are populated accurately.
         candidate_models = [
             settings.GEMINI_MODEL,
             "gemini-flash-lite-latest",
-            "gemini-3.1-flash-lite",
+            "gemini-3-flash-preview",
+            "gemini-3.5-flash",
             "gemini-3.5-flash-lite",
             "gemini-flash-latest",
             "gemini-3.8-flash",
@@ -702,13 +704,19 @@ Ensure all required fields are populated accurately.
                 err_str = str(exc)
                 if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                     logger.warning("Gemini model '%s' mencapai batas kuota harian Free Tier (429).", model_name)
+                    time.sleep(1.0)
+                elif "503" in err_str or "UNAVAILABLE" in err_str:
+                    logger.warning("Gemini model '%s' sedang mengalami lonjakan beban (503 UNAVAILABLE). Mencoba model alternatif...", model_name)
+                    time.sleep(1.5)
                 else:
                     logger.warning("Gemini evaluation with model '%s' failed: %s. Trying next fallback...", model_name, exc)
+                    time.sleep(0.5)
 
-        if last_error and ("429" in str(last_error) or "RESOURCE_EXHAUSTED" in str(last_error)):
-            logger.info("⚡ Mengaktifkan Deterministic SOP Rule Engine (Zero-Quota Local Evaluation)...")
-        else:
-            logger.error("All Gemini model attempts failed. Last error: %s", last_error)
+        logger.warning(
+            "⚡ Seluruh model Gemini Cloud tidak tersedia / sibuk (Last Error: %s). "
+            "Mengaktifkan Deterministic SOP Rule Engine (Failover Evaluasi Lokal Cepat)...",
+            last_error,
+        )
 
         # Deterministic SOP Fallback jika API AI sedang rate-limited (429) namun sinyal konfluensi sudah valid
         has_bear_momentum = "DEATH CROSS" in indicator_status.upper() or "BEARISH" in indicator_status.upper()
@@ -744,7 +752,7 @@ Ensure all required fields are populated accurately.
         # Validasi spesifik Inverted Hammer vs Shooting Star pada fallback SOP
         has_inverted_hammer = "INVERTED HAMMER" in indicator_status.upper()
         has_shooting_star = "SHOOTING STAR" in indicator_status.upper()
-        rsi_val = float(market_data.get("rsi", 50.0))
+        rsi_val = float(payload.get("rsi", 50.0))
 
         if has_inverted_hammer and (has_uptrend or has_overbought or rsi_val > 50.0):
             logger.warning("Inverted Hammer invalid: Terdeteksi saat Uptrend/Overbought/RSI %.1f > 50. Menolak sinyal BUY.", rsi_val)
@@ -789,9 +797,20 @@ Ensure all required fields are populated accurately.
             sl_delta *= 1000.0
             tp_delta *= 1000.0
 
+        dynamic_sl = payload.get("dynamic_sl")
+        dynamic_tp = payload.get("dynamic_tp")
+        dynamic_tp_mode = payload.get("tp_mode", "")
+
         if is_sell_candidate and cur_p > 0:
-            sl_val = cur_p + sl_delta
-            tp_val = cur_p - tp_delta
+            if dynamic_sl and dynamic_tp:
+                sl_val = float(dynamic_sl)
+                tp_val = float(dynamic_tp)
+                sl_dist = abs(cur_p - sl_val)
+                tp_dist = abs(cur_p - tp_val)
+                rr_str = f"1:{round(tp_dist / sl_dist, 2)}" if sl_dist > 0 else rr_str
+            else:
+                sl_val = cur_p + sl_delta
+                tp_val = cur_p - tp_delta
             return TradingSignalDecision(
                 instrument=symbol,
                 timeframe=timeframe,
@@ -816,8 +835,15 @@ Ensure all required fields are populated accurately.
                 bar_timestamp=str(payload.get("timestamp", "")),
             )
         elif is_buy_candidate and cur_p > 0:
-            sl_val = cur_p - sl_delta
-            tp_val = cur_p + tp_delta
+            if dynamic_sl and dynamic_tp:
+                sl_val = float(dynamic_sl)
+                tp_val = float(dynamic_tp)
+                sl_dist = abs(cur_p - sl_val)
+                tp_dist = abs(tp_val - cur_p)
+                rr_str = f"1:{round(tp_dist / sl_dist, 2)}" if sl_dist > 0 else rr_str
+            else:
+                sl_val = cur_p - sl_delta
+                tp_val = cur_p + tp_delta
             return TradingSignalDecision(
                 instrument=symbol,
                 timeframe=timeframe,
