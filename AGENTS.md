@@ -42,7 +42,7 @@
 * **Anti-Slippage Dynamic Anchoring (`mt5_bridge.py`):**
   * Jarak SL dan TP dihitung ulang berdasarkan harga riil eksekusi (`Ask` untuk BUY, `Bid` untuk SELL) dengan batas minimum SL terkunci $\ge 4.5$ pips dan TP adaptif diizinkan pada rentang $\ge 1.25\times$ hingga $1.85\times$ SL (fallback default $1.5\times$).
 * **Filter Mutlak Institusional & Proteksi Modal:**
-  * **Ambang Batas Konfluensi:** Wajib minimal **3 Konfluensi Grade-A** (meningkat dari sebelumnya 2) untuk menyaring noise.
+  * **Ambang Batas Konfluensi:** Wajib minimal **2 Konfluensi Grade-A** (dengan kewajiban memuat minimal 1 pola candlestick valid + 1 konfluensi indikator/MTF) untuk memastikan efisiensi entry tanpa mengorbankan kualitas.
   * **Hard Veto MTF (Anti Counter-Trend):** Dilarang keras SELL jika MTF 15m Bullish di atas EMA 200, dilarang BUY jika MTF 15m Bearish di bawah EMA 200.
   * **Filter Jam Sesi Rawan Chop (*Session Filter*):** Dilarang membuka posisi baru pada jam likuiditas tipis & rawan false breakout: **11:30 – 13:00 WIB** (Jeda Siang Asia) dan **17:30 – 19:00 WIB** (London Lunch / Pre-NY).
   * **Anti-Steep EMA Slope Veto:** Dilarang BUY jika EMA-20 & EMA-50 menukik tajam ke bawah; dilarang SELL jika EMA-20 & EMA-50 menanjak tajam ke atas.
@@ -67,18 +67,21 @@
 * **Filter Pemisahan MTF:**
   * Peringatan Counter-trend MTF (15m) tidak membatalkan eksekusi filter larangan penutupan candle berlawanan.
 * **Tweezer Top (Bearish Reversal):**
-  * Dua candle berturut-turut menguji level resistance dengan High kembar presisi (selisih $\le 0.5$ pips / $15\%$ range).
+  * Dua candle berturut-turut menguji level resistance dengan High kembar presisi (selisih $\le 1.1$ pips / $25\%$ range).
   * Candle 1 Bullish (`Close1 > Open1`), Candle 2 Bearish (`Close2 < Open2`) yang berbalik turun dari puncak High yang sama.
-  * Candle 2 WAJIB body merah solid ($\ge 30\%$ range), menembus $\le 50\%$ body candle 1, dan memiliki sumbu atas penolakan nyata ($\ge 25\%$ range).
+  * Candle 2 WAJIB body merah solid ($\ge 30\%$ range), menembus $\le 50\%$ body candle 1, dan memiliki sumbu atas penolakan nyata ($\ge 18\%$ range) atau dorongan momentum bearish solid ($\ge 45\%$ range).
   * Mengambil prioritas mutlak di atas Dark Cloud Cover; jika High kembar terpenuhi, diklasifikasikan sebagai Tweezer Top.
 * **Tweezer Bottom (Bullish Reversal):**
-  * Dua candle berturut-turut menguji level support dengan Low kembar presisi (selisih $\le 0.5$ pips / $15\%$ range).
+  * Dua candle berturut-turut menguji level support dengan Low kembar presisi (selisih $\le 1.1$ pips / $25\%$ range).
   * Candle 1 Bearish (`Close1 < Open1`), Candle 2 Bullish (`Close2 > Open2`) yang memantul naik dari dasar Low yang sama.
-  * Candle 2 WAJIB body hijau solid ($\ge 30\%$ range), menembus $\ge 50\%$ body candle 1, dan memiliki sumbu bawah penolakan nyata ($\ge 25\%$ range).
+  * Candle 2 WAJIB body hijau solid ($\ge 30\%$ range), menembus $\ge 50\%$ body candle 1, dan memiliki sumbu bawah penolakan nyata ($\ge 18\%$ range) atau dorongan momentum bullish solid ($\ge 45\%$ range).
   * Mengambil prioritas mutlak di atas Piercing Line.
 * **Dark Cloud Cover & Piercing Line Guard:**
   * Dark Cloud Cover WAJIB mengecualikan Tweezer Top (`not is_tweezer_top`).
   * Piercing Line WAJIB mengecualikan Tweezer Bottom (`not is_tweezer_bottom`).
+* **Engulfing & Pullback Calibration:**
+  * Rasio body Engulfing diatur $\ge 1.05\times$ body candle lawan (menghilangkan dead zone).
+  * Konteks RSI untuk pola reversal / retest: Bearish diizinkan pada RSI $\ge 42.0$ (pullback dalam tren turun) dan Bullish pada RSI $\le 55.0$ (pullback dalam tren naik).
 
 ---
 

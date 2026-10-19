@@ -670,23 +670,23 @@ class LiveMarketScanner:
             (c_close < p3_close)
         )
 
-        # Konteks Tren Turun untuk Pola Reversal Bullish:
-        # Wajib: Ada pelemahan harga (minor drop), berada di area support/swing low, RSI <= 50.0,
+        # Konteks Pelemahan/Pullback untuk Pola Reversal Bullish:
+        # Wajib: Ada pelemahan harga (minor drop), berada di area support/swing low, RSI <= 55.0,
         # dan BUKAN di tengah rally/uptrend aktif yang sudah berjalan!
         is_minor_downtrend = (p_close < p_open) or (p_close < p2_close) or (c_low < p_low) or (c_close < cur_ema20)
         is_downtrend_context = (
-            (cur_rsi <= 50.0) and
+            (cur_rsi <= 55.0) and
             not is_actively_rising and
             is_support_zone and
             is_minor_downtrend
         )
 
-        # Konteks Tren Naik untuk Pola Reversal Bearish:
-        # Wajib: Ada kenaikan harga (minor rally), berada di area resistance/swing high, RSI >= 50.0,
+        # Konteks Kenaikan/Pullback untuk Pola Reversal Bearish:
+        # Wajib: Ada kenaikan harga (minor rally), berada di area resistance/swing high, RSI >= 42.0,
         # dan BUKAN di tengah sell-off/downtrend aktif yang sedang jatuh!
         is_minor_uptrend = (p_close > p_open) or (p_close > p2_close) or (c_high > p_high) or (c_close > cur_ema20)
         is_uptrend_context = (
-            (cur_rsi >= 50.0) and
+            (cur_rsi >= 42.0) and
             not is_actively_falling and
             is_resistance_zone and
             is_minor_uptrend
@@ -703,7 +703,7 @@ class LiveMarketScanner:
             (p_body >= 0.30 * p_range) and
             (p_body >= 0.25 * body_size) and
             (c_close >= p_open - spread_tol) and (c_open <= p_close + spread_tol) and
-            (body_size >= p_body * 1.25) and
+            (body_size >= p_body * 1.05) and
             (body_size >= 0.45 * c_range) and
             is_support_zone
         )
@@ -795,7 +795,7 @@ class LiveMarketScanner:
 
         # 5. Tweezer Bottom (Formasi 2-Candle: Low kembar presisi di area Support / Dasar Downtrend - Steve Nison SOP)
         tw_b_diff = abs(c_low - p_low)
-        tw_b_max = max(min(c_range, p_range) * 0.15, spread_tol * 1.5)
+        tw_b_max = max(min(c_range, p_range) * 0.25, spread_tol * 2.2, 0.00011)
         is_tweezer_bottom = (
             is_downtrend_context and
             (max(c_range, p_range) >= min_candle_range) and
@@ -805,7 +805,7 @@ class LiveMarketScanner:
             (c_close > c_open) and
             (body_size >= min_candle_range * 0.30) and
             (c_close >= (p_open + p_close) / 2) and
-            (lower_shadow >= 0.25 * c_range) and
+            (lower_shadow >= 0.18 * c_range or (body_size >= 0.45 * c_range and c_close >= (p_open + p_close) / 2)) and
             (c_close > c_low) and
             (c_low <= (cur_bb_basis + cur_bb_lower) / 2 or is_support_zone) and
             not is_bullish_engulfing
@@ -938,7 +938,7 @@ class LiveMarketScanner:
             (p_body >= 0.30 * p_range) and
             (p_body >= 0.25 * body_size) and
             (c_close <= p_open + spread_tol) and (c_open >= p_close - spread_tol) and
-            (body_size >= p_body * 1.25) and
+            (body_size >= p_body * 1.05) and
             (body_size >= 0.45 * c_range) and
             is_resistance_zone
         )
@@ -1009,7 +1009,7 @@ class LiveMarketScanner:
 
         # 5. Tweezer Top (Formasi 2-Candle: High kembar presisi di area Resistance / Puncak Uptrend - Steve Nison SOP)
         tw_t_diff = abs(c_high - p_high)
-        tw_t_max = max(min(c_range, p_range) * 0.15, spread_tol * 1.5)
+        tw_t_max = max(min(c_range, p_range) * 0.25, spread_tol * 2.2, 0.00011)
         is_tweezer_top = (
             is_uptrend_context and
             (max(c_range, p_range) >= min_candle_range) and
@@ -1019,7 +1019,7 @@ class LiveMarketScanner:
             (c_close < c_open) and
             (body_size >= min_candle_range * 0.30) and
             (c_close <= (p_open + p_close) / 2) and
-            (upper_shadow >= 0.25 * c_range) and
+            (upper_shadow >= 0.18 * c_range or (body_size >= 0.45 * c_range and c_close <= (p_open + p_close) / 2)) and
             (c_close < c_high) and
             (c_high >= (cur_bb_basis + cur_bb_upper) / 2 or is_resistance_zone) and
             not is_bearish_engulfing
@@ -1465,11 +1465,11 @@ class LiveMarketScanner:
         has_bull_pattern = any(m not in NON_CANDLE_INDICATORS and not m.startswith("Post-News") for m in bull_matches)
         has_bear_pattern = any(m not in NON_CANDLE_INDICATORS and not m.startswith("Post-News") for m in bear_matches)
 
-        # Ambang Batas Kualitas Institusional: Wajib Minimal 3 Konfluensi Grade-A (Anti-Noise)
+        # Ambang Batas Kualitas: Wajib Minimal 2 Konfluensi Grade-A (dengan Wajib Memuat Pola Candlestick Valid)
         pattern_name = None
-        if len(bull_matches) >= 3 and has_bull_pattern:
+        if len(bull_matches) >= 2 and has_bull_pattern:
             pattern_name = f"BUY ({len(bull_matches)} Konfluensi: {', '.join(bull_matches)})"
-        elif len(bear_matches) >= 3 and has_bear_pattern:
+        elif len(bear_matches) >= 2 and has_bear_pattern:
             pattern_name = f"SELL ({len(bear_matches)} Konfluensi: {', '.join(bear_matches)})"
 
         rsi_status = "RSI Oversold" if cur_rsi < 30 else ("RSI Overbought" if cur_rsi > 70 else "RSI Netral")
