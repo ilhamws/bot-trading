@@ -1401,10 +1401,17 @@ class LiveMarketScanner:
             bear_matches = []
 
         # D. Anti-Rocket & Momentum Collision Veto:
-        # Dilarang SELL jika MACD sedang Golden Cross kuat dan candle bar masih ditutup hijau
-        elif (cur_macd > cur_signal and cur_macd > prev_macd) and c_close > c_open:
-            bear_matches = []
+        # Dilarang SELL jika MACD sedang Golden Cross aktif (Bullish Momentum), KECUALI jika RSI Overbought parah (>= 70) dengan sumbu rejeksi nyata (>= 30% range)
+        elif cur_macd > cur_signal:
+            if not (cur_rsi >= 70.0 and upper_shadow >= 0.30 * c_range):
+                logger.info("🚫 [MOMENTUM VETO] Sinyal SELL dibatalkan karena bertabrakan dengan MACD Bullish Golden Cross.")
+                bear_matches = []
         elif cur_rsi > 78.0 and upper_shadow < 0.35 * c_range:
+            bear_matches = []
+
+        # D2. Micro-trend EMA Alignment Veto: Dilarang SELL jika harga ditutup di atas EMA20 dan EMA20 sedang menanjak
+        elif c_close > cur_ema20 and cur_ema20 > prev_ema20:
+            logger.info("🚫 [EMA ALIGNMENT VETO] Sinyal SELL dibatalkan karena harga di atas EMA20 yang sedang menanjak (Micro-Bullish Rebound).")
             bear_matches = []
 
         # E. Pola Breakout Continuation & F. Pola Bearish Top Reversal & G. Larangan Mutlak SELL:
@@ -1440,10 +1447,17 @@ class LiveMarketScanner:
             bull_matches = []
 
         # D. Anti-Falling Knife & Momentum Collapse Veto:
-        # Dilarang BUY jika MACD sedang Death Cross kuat dan candle bar masih ditutup merah
-        elif (cur_macd < cur_signal and cur_macd < prev_macd) and c_close < c_open:
-            bull_matches = []
+        # Dilarang BUY jika MACD sedang Death Cross aktif (Bearish Momentum), KECUALI jika RSI Oversold parah (<= 30) dengan sumbu pantulan nyata (>= 30% range)
+        elif cur_macd < cur_signal:
+            if not (cur_rsi <= 30.0 and lower_shadow >= 0.30 * c_range):
+                logger.info("🚫 [MOMENTUM VETO] Sinyal BUY dibatalkan karena bertabrakan dengan MACD Bearish Death Cross.")
+                bull_matches = []
         elif cur_rsi < 22.0 and lower_shadow < 0.35 * c_range:
+            bull_matches = []
+
+        # D2. Micro-trend EMA Alignment Veto: Dilarang BUY jika harga ditutup di bawah EMA20 dan EMA20 sedang menukik turun
+        elif c_close < cur_ema20 and cur_ema20 < prev_ema20:
+            logger.info("🚫 [EMA ALIGNMENT VETO] Sinyal BUY dibatalkan karena harga di bawah EMA20 yang sedang menukik (Micro-Bearish Plunge).")
             bull_matches = []
 
         # C. Pola Breakout Continuation & D. Pola Bullish Reversal & E. Larangan Mutlak BUY:

@@ -45,6 +45,9 @@
   * **Ambang Batas Konfluensi:** Wajib minimal **2 Konfluensi Grade-A** (dengan kewajiban memuat minimal 1 pola candlestick valid + 1 konfluensi indikator/MTF) untuk memastikan efisiensi entry tanpa mengorbankan kualitas.
   * **Hard Veto MTF (Anti Counter-Trend):** Dilarang keras SELL jika MTF 15m Bullish di atas EMA 200, dilarang BUY jika MTF 15m Bearish di bawah EMA 200.
   * **Filter Jam Sesi Rawan Chop (*Session Filter*):** Dilarang membuka posisi baru pada jam likuiditas tipis & rawan false breakout: **11:30 – 13:00 WIB** (Jeda Siang Asia) dan **17:30 – 19:00 WIB** (London Lunch / Pre-NY).
+  * **Dynamic Breakeven (BE) Protection (`mt5_bridge.py`):** Ketika floating profit mencapai $\ge +5.0$ pips, Stop Loss otomatis digeser ke harga Entry $+0.5$ pip untuk mengunci posisi bebas risiko kerugian (*risk-free trade*).
+  * **Anti-Recovery Rally & Momentum Collision Veto:** Dilarang keras SELL jika MACD sedang Golden Cross aktif (`cur_macd > cur_signal`), KECUALI jika RSI Overbought parah $\ge 70.0$ dengan sumbu penolakan atas $\ge 30\%$. Dilarang keras BUY jika MACD Death Cross aktif (`cur_macd < cur_signal`), KECUALI jika RSI Oversold parah $\le 30.0$ dengan sumbu pantulan bawah $\ge 30\%$.
+  * **Micro-Trend EMA Alignment Veto:** Dilarang SELL jika harga penutupan berada di atas EMA 20 dan EMA 20 sedang menanjak naik; dilarang BUY jika harga di bawah EMA 20 dan EMA 20 menukik turun.
   * **Anti-Steep EMA Slope Veto:** Dilarang BUY jika EMA-20 & EMA-50 menukik tajam ke bawah; dilarang SELL jika EMA-20 & EMA-50 menanjak tajam ke atas.
   * **Anti-Falling Knife:** Dilarang BUY saat MACD Death Cross tajam & candle penutupan merah; dilarang BUY jika RSI $< 22$ tanpa wick rejection $\ge 40\%$.
   * **Post-Loss Cooldown:** Wajib jeda **15 menit (3 bar candle)** pasca trade loss sebelum membuka order baru di simbol yang sama.
@@ -101,9 +104,10 @@
 ---
 
 ## 6. Riwayat Tiket & Status Terkini
-* **Tiket Eksekusi Terakhir:** Tiket `#15276861` (SELL EURUSD 0.01 lot @ 1.12138, SL 1.12184, TP 1.12053).
+* **Tiket Eksekusi Terakhir:** Tiket `#152781206987` (SELL EURUSD 0.01 lot @ 1.12127, SL 1.12193, TP 1.12025, Status: LOSS -6.6 pips).
+* **Audit Forensik Loss Terakhir:** "Stop Loss tersentuh akibat dorongan harga intraday yang menguji resistensi atas (menembus EMA 50 di 1.1215) di tengah indikator MACD yang menunjukkan Golden Cross/Bullish, mengabaikan divergensi bearish."
 * **Refleksi Tersimpan:** Refleksi ID #1, #2, dan #3 aktif di ChromaDB & SQLite.
-* **Fitur Terkini:** Native MT5 Position Watcher di `mt5_bridge.py`, Strategi Pasca-Berita di `news_filter.py`, serta pengikatan kolom `ticket` di `signals.db` sebagai *single source of truth* (simulasi TradingView dilarang menutup order yang dikelola MT5).
+* **Fitur Terkini:** Native MT5 Position Watcher & Dynamic Breakeven di `mt5_bridge.py`, Strategi Pasca-Berita di `news_filter.py`, serta pengikatan kolom `ticket` di `signals.db` sebagai *single source of truth*.
 
 ---
 

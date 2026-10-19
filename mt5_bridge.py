@@ -17,6 +17,7 @@ Features:
 import os
 import sys
 import time
+from datetime import datetime, timedelta
 import json
 import shutil
 import logging
@@ -510,6 +511,59 @@ def load_active_positions() -> None:
             pass
 
 
+def check_breakeven_protection() -> None:
+    """Auto-move Stop Loss to Breakeven (+0.5 pip) once floating profit reaches >= 5.0 pips."""
+    if not active_positions:
+        return
+
+    for ticket, order_data in list(active_positions.items()):
+        pos_list = mt5.positions_get(ticket=ticket)
+        if not pos_list or len(pos_list) == 0:
+            continue
+        pos = pos_list[0]
+        sym = pos.symbol
+        pip_scale = 0.01 if "JPY" in sym else (0.10 if "XAU" in sym or "GOLD" in sym else 0.0001)
+
+        info = mt5.symbol_info_tick(sym)
+        if not info:
+            continue
+
+        cur_bid = info.bid
+        cur_ask = info.ask
+        is_buy = pos.type == mt5.ORDER_TYPE_BUY
+
+        # Hitung floating profit dalam satuan pips
+        floating_pips = (cur_bid - pos.price_open) / pip_scale if is_buy else (pos.price_open - cur_ask) / pip_scale
+
+        # Kunci BE jika running profit >= 5.0 pips
+        if floating_pips >= 5.0:
+            be_sl = round(pos.price_open + (0.5 * pip_scale) if is_buy else pos.price_open - (0.5 * pip_scale), 5)
+            # Pastikan SL baru lebih menguntungkan/aman dibanding SL saat ini
+            should_move = (pos.sl < be_sl) if is_buy else (pos.sl > be_sl or pos.sl <= 0)
+            if should_move:
+                req = {
+                    "action": mt5.TRADE_ACTION_SLTP,
+                    "position": ticket,
+                    "symbol": sym,
+                    "sl": be_sl,
+                    "tp": pos.tp,
+                }
+                res = mt5.order_send(req)
+                if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                    logger.info("🛡️ [BREAKEVEN] SL Tiket #%d digeser ke %.5f (+0.5 pip, Floating: +%.1f pips)", ticket, be_sl, floating_pips)
+                    be_msg = (
+                        f"🛡️ *BREAKEVEN TERKUNCI (RISK-FREE)!* 🛡️\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"🎟️ *Ticket ID:* `#{ticket}`\n"
+                        f"📊 *Instrumen:* `{sym}`\n"
+                        f"📈 *Floating Profit:* `+{floating_pips:.1f} pips`\n"
+                        f"🔒 *Stop Loss Baru:* `{be_sl}` (Locked +0.5 pip)\n"
+                        f"━━━━━━━━━━━━━━━━━━━━\n"
+                        f"✅ _Posisi aman 100% bebas dari risiko kerugian!_"
+                    )
+                    send_telegram_alert(be_msg)
+
+
 def check_closed_positions() -> None:
     """Monitor active positions and immediately detect SL or TP hits in MT5."""
     if not active_positions:
@@ -520,7 +574,14 @@ def check_closed_positions() -> None:
         pos = mt5.positions_get(ticket=ticket)
         if pos is None or len(pos) == 0:
             closed_tickets.append(ticket)
-            deals = mt5.history_deals_get(position=ticket)
+            
+            # Cari history deals 3 hari terakhir agar history selalu termuat
+            now_dt = datetime.now()
+            from_dt = now_dt - timedelta(days=3)
+            deals = mt5.history_deals_get(from_dt, now_dt, position=ticket)
+            if not deals or len(deals) == 0:
+                deals = mt5.history_deals_get(position=ticket)
+
             exit_price = None
             profit = 0.0
             reason_str = "TUTUP POSISI"
@@ -540,16 +601,47 @@ def check_closed_positions() -> None:
                             reason_str = "✋ DITUTUP MANUAL"
                         break
 
+            sym = order_data.get("symbol", "EURUSD")
+            action = order_data.get("action", "")
+            sl_val = float(order_data.get("sl") or 0.0)
+            tp_val = float(order_data.get("tp") or 0.0)
+
+            # Fallback jika deal history MT5 belum sinkron
+            if exit_price is None:
+                info = mt5.symbol_info_tick(sym)
+                cur_price = info.bid if action == "BUY" else info.ask if info else 0.0
+                if action == "BUY":
+                    if sl_val > 0 and cur_price <= sl_val:
+                        exit_price = sl_val
+                        reason_str = "🛑 STOP LOSS TERSENTUH"
+                        profit = -abs(exit_price - float(order_data.get("price", exit_price))) * 100000 * float(order_data.get("lot", 0.01))
+                    else:
+                        exit_price = tp_val if tp_val > 0 else cur_price
+                else:
+                    if sl_val > 0 and cur_price >= sl_val:
+                        exit_price = sl_val
+                        reason_str = "🛑 STOP LOSS TERSENTUH"
+                        profit = -abs(exit_price - float(order_data.get("price", exit_price))) * 100000 * float(order_data.get("lot", 0.01))
+                    else:
+                        exit_price = tp_val if tp_val > 0 else cur_price
+
+            is_sl_hit = (
+                reason_str == "🛑 STOP LOSS TERSENTUH" or
+                profit < 0 or
+                (exit_price and sl_val > 0 and (
+                    (action == "BUY" and exit_price <= sl_val + 0.00005) or
+                    (action == "SELL" and exit_price >= sl_val - 0.00005)
+                ))
+            )
+            status_word = "LOSS" if is_sl_hit else "WIN"
+
             logger.info("=" * 60)
             logger.info("📢 POSISI TIKET #%d TELAH SELESAI DI MT5!", ticket)
-            logger.info("• Status      : %s", reason_str)
+            logger.info("• Status      : %s (%s)", reason_str, status_word)
             logger.info("• Harga Exit  : %s", exit_price)
             logger.info("• Profit/Rugi : $%.2f", profit)
             logger.info("=" * 60)
 
-            sym = order_data.get("symbol", "EURUSD")
-            action = order_data.get("action", "")
-            status_word = "LOSS" if profit < 0 else "WIN"
             tg_msg = (
                 f"{reason_str} DI METATRADER 5! 🔔\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
@@ -595,6 +687,9 @@ def process_queue() -> None:
         try:
             # 1. Periksa posisi yang ditutup oleh SL / TP di MT5
             check_closed_positions()
+
+            # 1b. Periksa perlindungan Breakeven (BE) otomatis
+            check_breakeven_protection()
 
             # 2. Proses antrean order pending
             pending_files = list(PENDING_DIR.glob("*.json"))
