@@ -625,15 +625,19 @@ def check_closed_positions() -> None:
                     else:
                         exit_price = tp_val if tp_val > 0 else cur_price
 
-            is_sl_hit = (
-                reason_str == "🛑 STOP LOSS TERSENTUH" or
-                profit < 0 or
-                (exit_price and sl_val > 0 and (
-                    (action == "BUY" and exit_price <= sl_val + 0.00005) or
-                    (action == "SELL" and exit_price >= sl_val - 0.00005)
-                ))
-            )
-            status_word = "LOSS" if is_sl_hit else "WIN"
+            if profit >= 0 and "STOP LOSS" in reason_str:
+                reason_str = "🛡️ BREAKEVEN TERSENTUH (+PROFIT)"
+                status_word = "WIN"
+            else:
+                is_sl_hit = (
+                    reason_str == "🛑 STOP LOSS TERSENTUH" or
+                    profit < 0 or
+                    (exit_price and sl_val > 0 and (
+                        (action == "BUY" and exit_price <= sl_val + 0.00005) or
+                        (action == "SELL" and exit_price >= sl_val - 0.00005)
+                    ))
+                )
+                status_word = "LOSS" if is_sl_hit else "WIN"
 
             logger.info("=" * 60)
             logger.info("📢 POSISI TIKET #%d TELAH SELESAI DI MT5!", ticket)

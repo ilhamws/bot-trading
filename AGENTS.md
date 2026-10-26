@@ -104,10 +104,10 @@
 ---
 
 ## 6. Riwayat Tiket & Status Terkini
-* **Tiket Eksekusi Terakhir:** Tiket `#152781206987` (SELL EURUSD 0.01 lot @ 1.12127, SL 1.12193, TP 1.12025, Status: LOSS -6.6 pips).
-* **Audit Forensik Loss Terakhir:** "Stop Loss tersentuh akibat dorongan harga intraday yang menguji resistensi atas (menembus EMA 50 di 1.1215) di tengah indikator MACD yang menunjukkan Golden Cross/Bullish, mengabaikan divergensi bearish."
-* **Refleksi Tersimpan:** Refleksi ID #1, #2, dan #3 aktif di ChromaDB & SQLite.
-* **Fitur Terkini:** Native MT5 Position Watcher & Dynamic Breakeven di `mt5_bridge.py`, Strategi Pasca-Berita di `news_filter.py`, serta pengikatan kolom `ticket` di `signals.db` sebagai *single source of truth*.
+* **Tiket Eksekusi Terakhir:** Tiket `#152811995297` (BUY USDJPY 0.01 lot @ 157.129, Exit 157.134, Status: WIN +0.5 pip via Breakeven) & `#152811924451` (BUY USDJPY 0.01 lot @ 157.101, Exit 157.106, Status: WIN +0.5 pip via Breakeven).
+* **Tiket Loss Riil Terakhir:** Tiket `#152811747254` (BUY EURUSD 0.01 lot @ 1.12186, Exit 1.12141, Status: LOSS -4.5 pips).
+* **Refleksi Tersimpan:** Refleksi ID #1 s/d #13 aktif di ChromaDB & SQLite (termasuk pantangan mutlak BUY saat Stochastic Overbought > 80 & menabrak BB Upper di 5m).
+* **Fitur Terkini:** Multi-simbol scanning live feed (`EURUSD`, `GBPUSD`, `USDJPY`, `XAUUSD`), Native MT5 Position Watcher & Dynamic Breakeven, pemisahan klasifikasi Breakeven SL (`profit >= 0` $\rightarrow$ WIN / no false reflection) di `mt5_bridge.py`.
 
 ---
 
