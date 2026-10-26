@@ -512,7 +512,11 @@ def load_active_positions() -> None:
 
 
 def check_breakeven_protection() -> None:
-    """Auto-move Stop Loss to Breakeven (+0.5 pip) once floating profit reaches >= 5.0 pips."""
+    """Auto-move Stop Loss using Stepped Trailing Stop (Multi-Tier Profit Lock):
+    - Tier 1: Floating >= +5.0 pips -> Lock +0.5 pip (Breakeven / Risk-Free)
+    - Tier 2: Floating >= +8.0 pips -> Lock +4.5 pips (Profit Protection)
+    - Tier 3: Floating >= +12.0 pips -> Lock +8.5 pips (Runner Lock)
+    """
     if not active_positions:
         return
 
@@ -528,6 +532,9 @@ def check_breakeven_protection() -> None:
         if not info:
             continue
 
+        sym_info = mt5.symbol_info(sym)
+        digits = sym_info.digits if sym_info else 5
+
         cur_bid = info.bid
         cur_ask = info.ask
         is_buy = pos.type == mt5.ORDER_TYPE_BUY
@@ -535,31 +542,53 @@ def check_breakeven_protection() -> None:
         # Hitung floating profit dalam satuan pips
         floating_pips = (cur_bid - pos.price_open) / pip_scale if is_buy else (pos.price_open - cur_ask) / pip_scale
 
-        # Kunci BE jika running profit >= 5.0 pips
-        if floating_pips >= 5.0:
-            be_sl = round(pos.price_open + (0.5 * pip_scale) if is_buy else pos.price_open - (0.5 * pip_scale), 5)
-            # Pastikan SL baru lebih menguntungkan/aman dibanding SL saat ini
-            should_move = (pos.sl < be_sl) if is_buy else (pos.sl > be_sl or pos.sl <= 0)
+        # Evaluasi Jenjang Trailing Bertingkat (Stepped Trailing Tiers)
+        target_pips = 0.0
+        tier_label = ""
+        icon = "🛡️"
+
+        if floating_pips >= 12.0:
+            target_pips = 8.5
+            tier_label = "TIER 3: RUNNER LOCK (+8.5 PIPS)"
+            icon = "💎"
+        elif floating_pips >= 8.0:
+            target_pips = 4.5
+            tier_label = "TIER 2: PROFIT LOCK (+4.5 PIPS)"
+            icon = "💰"
+        elif floating_pips >= 5.0:
+            target_pips = 0.5
+            tier_label = "TIER 1: BREAKEVEN (+0.5 PIP)"
+            icon = "🛡️"
+
+        if target_pips > 0.0:
+            new_sl = round(
+                pos.price_open + (target_pips * pip_scale) if is_buy
+                else pos.price_open - (target_pips * pip_scale),
+                digits
+            )
+            # Pastikan SL baru hanya maju searah keuntungan (tidak pernah mundur)
+            should_move = (pos.sl < new_sl) if is_buy else (pos.sl > new_sl or pos.sl <= 0)
             if should_move:
                 req = {
                     "action": mt5.TRADE_ACTION_SLTP,
                     "position": ticket,
                     "symbol": sym,
-                    "sl": be_sl,
+                    "sl": new_sl,
                     "tp": pos.tp,
                 }
                 res = mt5.order_send(req)
                 if res and res.retcode == mt5.TRADE_RETCODE_DONE:
-                    logger.info("🛡️ [BREAKEVEN] SL Tiket #%d digeser ke %.5f (+0.5 pip, Floating: +%.1f pips)", ticket, be_sl, floating_pips)
+                    logger.info("%s [%s] SL Tiket #%d dimajukan ke %.5f (+%.1f pips, Floating: +%.1f pips)",
+                                icon, tier_label, ticket, new_sl, target_pips, floating_pips)
                     be_msg = (
-                        f"🛡️ *BREAKEVEN TERKUNCI (RISK-FREE)!* 🛡️\n"
+                        f"{icon} *{tier_label} AKTIF!* {icon}\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n"
                         f"🎟️ *Ticket ID:* `#{ticket}`\n"
                         f"📊 *Instrumen:* `{sym}`\n"
                         f"📈 *Floating Profit:* `+{floating_pips:.1f} pips`\n"
-                        f"🔒 *Stop Loss Baru:* `{be_sl}` (Locked +0.5 pip)\n"
+                        f"🔒 *Stop Loss Baru:* `{new_sl}` (Terkunci +{target_pips:.1f} pips)\n"
                         f"━━━━━━━━━━━━━━━━━━━━\n"
-                        f"✅ _Posisi aman 100% bebas dari risiko kerugian!_"
+                        f"✅ _Keuntungan aman terkunci jika pasar berbalik arah!_"
                     )
                     send_telegram_alert(be_msg)
 
@@ -626,8 +655,15 @@ def check_closed_positions() -> None:
                         exit_price = tp_val if tp_val > 0 else cur_price
 
             if profit >= 0 and "STOP LOSS" in reason_str:
-                reason_str = "🛡️ BREAKEVEN TERSENTUH (+PROFIT)"
-                status_word = "BREAKEVEN"
+                pip_scale = 0.01 if "JPY" in sym else (0.10 if "XAU" in sym or "GOLD" in sym else 0.0001)
+                planned_price = float(order_data.get("price") or exit_price or 0.0)
+                pips_gain = round(abs(exit_price - planned_price) / pip_scale, 1) if (exit_price and planned_price) else 0.5
+                if pips_gain >= 2.0:
+                    reason_str = f"💰 TRAILING PROFIT LOCK TERSENTUH (+{pips_gain:.1f} pips)"
+                    status_word = "WIN"
+                else:
+                    reason_str = "🛡️ BREAKEVEN TERSENTUH (+PROFIT)"
+                    status_word = "BREAKEVEN"
             else:
                 is_sl_hit = (
                     reason_str == "🛑 STOP LOSS TERSENTUH" or

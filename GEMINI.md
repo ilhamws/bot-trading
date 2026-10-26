@@ -45,7 +45,10 @@
   * **Ambang Batas Konfluensi:** Wajib minimal **2 Konfluensi Grade-A** (dengan kewajiban memuat minimal 1 pola candlestick valid + 1 konfluensi indikator/MTF) untuk memastikan efisiensi entry tanpa mengorbankan kualitas.
   * **Hard Veto MTF (Anti Counter-Trend):** Dilarang keras SELL jika MTF 15m Bullish di atas EMA 200, dilarang BUY jika MTF 15m Bearish di bawah EMA 200.
   * **Filter Jam Sesi Rawan Chop (*Session Filter*):** Dilarang membuka posisi baru pada jam likuiditas tipis & rawan false breakout: **11:30 – 13:00 WIB** (Jeda Siang Asia) dan **17:30 – 19:00 WIB** (London Lunch / Pre-NY).
-  * **Dynamic Breakeven (BE) Protection (`mt5_bridge.py`):** Ketika floating profit mencapai $\ge +5.0$ pips, Stop Loss otomatis digeser ke harga Entry $+0.5$ pip untuk mengunci posisi bebas risiko kerugian (*risk-free trade*).
+  * **Dynamic Breakeven & Stepped Trailing Profit Lock (`mt5_bridge.py`):**
+    * **Tier 1 (Breakeven):** Floating profit $\ge +5.0$ pips $\rightarrow$ SL otomatis digeser ke Entry $+0.5$ pip untuk mengunci posisi bebas risiko (*risk-free trade*).
+    * **Tier 2 (Stepped Profit Lock):** Floating profit $\ge +8.0$ pips $\rightarrow$ SL otomatis digeser ke Entry $+4.5$ pips untuk mengunci keuntungan solid dan mencegah profit tergerus saat harga berbalik sebelum TP.
+    * **Tier 3 (Runner Profit Lock):** Floating profit $\ge +12.0$ pips $\rightarrow$ SL otomatis digeser ke Entry $+8.5$ pips pada tren ekspansi panjang.
   * **Anti-Recovery Rally & Momentum Collision Veto:** Dilarang keras SELL jika MACD sedang Golden Cross aktif (`cur_macd > cur_signal`), KECUALI jika RSI Overbought parah $\ge 70.0$ dengan sumbu penolakan atas $\ge 30\%$. Dilarang keras BUY jika MACD Death Cross aktif (`cur_macd < cur_signal`), KECUALI jika RSI Oversold parah $\le 30.0$ dengan sumbu pantulan bawah $\ge 30\%$.
   * **Micro-Trend EMA Alignment Veto:** Dilarang SELL jika harga penutupan berada di atas EMA 20 dan EMA 20 sedang menanjak naik; dilarang BUY jika harga di bawah EMA 20 dan EMA 20 menukik turun.
   * **Anti-Steep EMA Slope Veto:** Dilarang BUY jika EMA-20 & EMA-50 menukik tajam ke bawah; dilarang SELL jika EMA-20 & EMA-50 menanjak tajam ke atas.
