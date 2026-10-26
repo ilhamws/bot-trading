@@ -214,7 +214,7 @@ class SignalTracker:
                         s_id = row["id"]
                         entry_p = row["entry_price"]
                         if exit_price <= 0:
-                            exit_price = row["take_profit"] if status == "WIN" else row["stop_loss"]
+                            exit_price = row["take_profit"] if status == "WIN" else (entry_p if status == "BREAKEVEN" else row["stop_loss"])
                         pips = round((exit_price - entry_p) / pip_scale if action == "BUY" else (entry_p - exit_price) / pip_scale, 1)
 
                         cursor.execute("""
@@ -375,28 +375,32 @@ class SignalTracker:
             cursor.execute("SELECT COUNT(*) FROM trading_signals WHERE status = 'WIN'")
             wins = cursor.fetchone()[0]
 
+            cursor.execute("SELECT COUNT(*) FROM trading_signals WHERE status = 'BREAKEVEN'")
+            breakevens = cursor.fetchone()[0]
+
             cursor.execute("SELECT COUNT(*) FROM trading_signals WHERE status = 'LOSS'")
             losses = cursor.fetchone()[0]
 
             cursor.execute("SELECT COUNT(*) FROM trading_signals WHERE status = 'OPEN'")
             open_count = cursor.fetchone()[0]
 
-            cursor.execute("SELECT COALESCE(SUM(pips_result), 0.0) FROM trading_signals WHERE status IN ('WIN', 'LOSS')")
+            cursor.execute("SELECT COALESCE(SUM(pips_result), 0.0) FROM trading_signals WHERE status IN ('WIN', 'BREAKEVEN', 'LOSS')")
             net_pips = round(cursor.fetchone()[0], 1)
 
-            cursor.execute("SELECT COALESCE(SUM(pips_result), 0.0) FROM trading_signals WHERE status = 'WIN'")
+            cursor.execute("SELECT COALESCE(SUM(pips_result), 0.0) FROM trading_signals WHERE status IN ('WIN', 'BREAKEVEN')")
             gross_win_pips = cursor.fetchone()[0]
 
             cursor.execute("SELECT COALESCE(ABS(SUM(pips_result)), 0.0) FROM trading_signals WHERE status = 'LOSS'")
             gross_loss_pips = cursor.fetchone()[0]
 
-            completed = wins + losses
-            win_rate = round((wins / completed) * 100.0, 1) if completed > 0 else 0.0
+            completed = wins + breakevens + losses
+            win_rate = round(((wins + breakevens) / completed) * 100.0, 1) if completed > 0 else 0.0
             profit_factor = round(gross_win_pips / gross_loss_pips, 2) if gross_loss_pips > 0 else (99.0 if gross_win_pips > 0 else 0.0)
 
             return {
                 "total_signals": total,
                 "wins": wins,
+                "breakevens": breakevens,
                 "losses": losses,
                 "open": open_count,
                 "completed": completed,
@@ -452,6 +456,7 @@ Gunakan nada objektif, lugas, tanpa salam pembuka/penutup.
                     config=types.GenerateContentConfig(
                         temperature=0.2,
                         max_output_tokens=250,
+                        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                     ),
                 )
                 if response and response.text:
@@ -477,6 +482,10 @@ Gunakan nada objektif, lugas, tanpa salam pembuka/penutup.
             header = "🎯 *TARGET TAKE PROFIT TERCAPAI!* 🎯"
             badge = "🟢 *HASIL: WIN (+PROFIT)*"
             pip_str = f"+{pips:.1f} pips"
+        elif status == "BREAKEVEN":
+            header = "🛡️ *STOP LOSS BREAKEVEN TERCAPAI!* 🛡️"
+            badge = "🔵 *HASIL: BREAKEVEN (+PROFIT AMAN)*"
+            pip_str = f"+{pips:.1f} pips"
         else:
             header = "🛑 *STOP LOSS TERSENTUH!* 🛑"
             badge = "🔴 *HASIL: LOSS (-DEFENSE)*"
@@ -499,7 +508,7 @@ Gunakan nada objektif, lugas, tanpa salam pembuka/penutup.
             f"• *Waktu Tercapai Exit:* `{exit_time}`",
             f"ℹ️ _Posisi ini berasal dari sinyal candle {tf} yang ditutup pada pukul {candle_bar}._",
         ]
-        if status != "WIN" and loss_diagnosis:
+        if status == "LOSS" and loss_diagnosis:
             lines.extend([
                 "─" * 32,
                 "🧠 *Analisis AI Penyebab Kena SL:*",
@@ -569,6 +578,7 @@ TUGAS ANDA:
                         config=types.GenerateContentConfig(
                             temperature=0.2,
                             max_output_tokens=600,
+                            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
                         ),
                     )
                     if response and response.text:
@@ -616,6 +626,118 @@ TUGAS ANDA:
 
             except Exception as exc:
                 logger.error("Gagal melakukan AI Self-Reflection: %s", exc)
+                return None
+
+    def reflect_and_self_optimize_breakeven(self, rag_engine: Any, min_breakevens: int = 3) -> Optional[str]:
+        """Perform autonomous AI self-reflection when 3 Breakeven trades accumulate (even non-consecutively)."""
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            # Ambil sinyal BREAKEVEN yang belum pernah dievaluasi
+            cursor.execute("""
+                SELECT * FROM trading_signals
+                WHERE status = 'BREAKEVEN' AND reflection_id IS NULL
+                ORDER BY id ASC
+                LIMIT 10
+            """)
+            be_rows = cursor.fetchall()
+
+            if len(be_rows) < min_breakevens:
+                logger.info(
+                    "ℹ️ [BREAKEVEN-AUDIT] Jumlah trade BREAKEVEN belum dievaluasi (%d/%d). Belum mencapai ambang batas.",
+                    len(be_rows), min_breakevens
+                )
+                return None
+
+            be_ids = [str(r["id"]) for r in be_rows]
+            be_summaries = []
+            for r in be_rows:
+                be_summaries.append(
+                    f"- Sinyal #{r['id']} {r['instrument']} {r['timeframe']} {r['action']} pada {r['created_at']}: "
+                    f"Entry: {r['entry_price']}, Target TP: {r['take_profit']}, Pola: {r['pattern_name']}, "
+                    f"Indikator: {r['indicator_status']}, Catatan: {r['notes_detail']}, Hasil: +{r['pips_result']} pips (Kena SL BE)."
+                )
+
+            cases_text = "\n".join(be_summaries)
+
+            gemini_client = getattr(rag_engine, "gemini_client", None)
+            if not gemini_client:
+                logger.warning("Gemini Client tidak tersedia untuk Breakeven Audit.")
+                return None
+
+            prompt = f"""Anda adalah Master Algorithmic Trading Coach & Exit Strategy Auditor.
+Berikut adalah {len(be_rows)} riwayat posisi trading yang menyentuh STOP LOSS BREAKEVEN (posisi sempat floating profit >= 5.0 pips namun berbalik arah sebelum mencapai Take Profit penuh):
+
+{cases_text}
+
+TUGAS ANDA:
+1. Analisis pola atau faktor teknikal mengapa harga berulang kali berbalik arah setelah bergerak 5 pips sebelum menyentuh target Take Profit (misal: target TP terlalu optimis, resistensi/support struktural menghadang di tengah jalan, divergensi momentum, atau pelemahan volume).
+2. Rumuskan 2-3 ATURAN OPTIMASI EXIT & TARGET TP BARU (misalnya: kalibrasi TP adaptif lebih realistis di 1.25x - 1.4x SL pada kondisi tertentu, atau penguncian trailing step) agar profit tidak sering kembali ke titik impas.
+3. Tuliskan dalam Bahasa Indonesia yang lugas dan berwibawa dengan format poin-poin jelas.
+"""
+            models_to_try = [
+                settings.GEMINI_MODEL,
+                "gemini-3.1-flash-lite",
+                "gemini-2.5-flash-lite",
+                "gemini-2.5-flash",
+                "gemini-1.5-flash",
+            ]
+            reflection_text = ""
+            for mod in models_to_try:
+                try:
+                    from google.genai import types
+                    response = gemini_client.models.generate_content(
+                        model=mod,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            temperature=0.2,
+                            max_output_tokens=600,
+                            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                        ),
+                    )
+                    if response and response.text:
+                        reflection_text = response.text.strip()
+                        break
+                except Exception as exc:
+                    logger.warning("Breakeven audit model '%s' gagal: %s. Mencoba alternatif...", mod, exc)
+                    continue
+
+            if not reflection_text:
+                return None
+
+            try:
+                now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute("""
+                    INSERT INTO ai_reflections (created_at, analyzed_loss_ids, reflection_summary, injected_rules)
+                    VALUES (?, ?, ?, ?)
+                """, (now_str, ",".join(be_ids), reflection_text, reflection_text))
+                reflection_id = cursor.lastrowid
+
+                # Update sinyal-sinyal breakeven agar ditandai sudah direfleksikan
+                cursor.execute(f"""
+                    UPDATE trading_signals
+                    SET reflection_id = ?
+                    WHERE id IN ({','.join(be_ids)})
+                """, (reflection_id,))
+                conn.commit()
+
+                # Suntikkan aturan optimasi baru ini ke ChromaDB (Knowledge Base)
+                if getattr(rag_engine, "collection", None) is not None:
+                    chunk_id = f"self_learned_breakeven_guardrail_{reflection_id}_{int(datetime.now().timestamp())}"
+                    rag_engine.collection.add(
+                        ids=[chunk_id],
+                        documents=[f"# SOP HASIL AUDIT STRATEGI BREAKEVEN (BREAKEVEN REFLECTION #{reflection_id})\n\n{reflection_text}"],
+                        metadatas=[{
+                            "source": "AI_Breakeven_Reflection.md",
+                            "page": reflection_id,
+                            "category": "self_learned_guardrail",
+                        }],
+                    )
+                    logger.info("🧠 [BREAKEVEN-OPT] Aturan optimasi Breakeven berhasil disuntikkan ke ChromaDB ID '%s'!", chunk_id)
+
+                return reflection_text
+
+            except Exception as exc:
+                logger.error("Gagal melakukan AI Breakeven Reflection: %s", exc)
                 return None
 
     def is_loss_cooldown(self, symbol: str, cooldown_minutes: int = 15) -> Tuple[bool, Optional[str]]:

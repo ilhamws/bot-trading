@@ -100,6 +100,13 @@
     4. Menginjeksi aturan ke ChromaDB (`knowledge_db/`) dengan kategori `self_learned_guardrail`.
     5. Mengirim Laporan Evaluasi Mandiri lengkap ke Telegram.
     6. **Injeksi Prioritas RAG:** Aturan pantangan mandiri ini otomatis disuntikkan di urutan teratas (*Rule #1 & #2*) pada setiap query analisa pasar berikutnya.
+* **Audit Akumulasi Breakeven (Ambang Batas: `min_breakevens = 3`):**
+  * Jika terjadi akumulasi **3 trade menyentuh Stop Loss Breakeven** (walaupun tidak berturut-turut):
+    1. AI mengaudit mengapa harga gagal mencapai Take Profit penuh setelah sempat menguntungkan $\ge +5.0$ pips.
+    2. Merumuskan 2–3 aturan optimasi target TP / proteksi exit baru.
+    3. Menyimpan permanen ke SQLite (`signals.db` tabel `ai_reflections`).
+    4. Menginjeksi aturan ke ChromaDB (`knowledge_db/`) dengan kategori `self_learned_guardrail`.
+    5. Mengirim Laporan Analisis Akumulasi Breakeven lengkap ke Telegram.
 
 ---
 

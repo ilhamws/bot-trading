@@ -627,7 +627,7 @@ def check_closed_positions() -> None:
 
             if profit >= 0 and "STOP LOSS" in reason_str:
                 reason_str = "🛡️ BREAKEVEN TERSENTUH (+PROFIT)"
-                status_word = "WIN"
+                status_word = "BREAKEVEN"
             else:
                 is_sl_hit = (
                     reason_str == "🛑 STOP LOSS TERSENTUH" or

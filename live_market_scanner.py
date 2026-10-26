@@ -1657,6 +1657,21 @@ class LiveMarketScanner:
                                         "✅ *SOP lokal dan Guardrails telah diperbarui otomatis!*"
                                     )
                                     await self.notifier.send_message(ref_alert)
+
+                            # 3. Trigger evaluasi mandiri AI jika mencapai batas akumulasi 3 BREAKEVEN (min_breakevens=3)
+                            if outcome.get("status") == "BREAKEVEN":
+                                be_reflection = signal_tracker.reflect_and_self_optimize_breakeven(self.rag_engine, min_breakevens=3)
+                                if be_reflection:
+                                    logger.info("🛡️ [BREAKEVEN-AUDIT] AI menyelesaikan audit akumulasi 3x Breakeven dan memperbarui SOP.")
+                                    be_alert = (
+                                        "🛡️ *LAPORAN ANALISIS AKUMULASI BREAKEVEN (3x BE HIT)* 🛡️\n"
+                                        "═" * 32 + "\n"
+                                        "⚠️ *Terdeteksi akumulasi 3 trade menyentuh Stop Loss Breakeven.* AI telah mengaudit penyebab reli harga tertahan sebelum Take Profit dan menyuntikkan aturan optimasi ke ChromaDB:\n\n"
+                                        f"{be_reflection}\n"
+                                        "═" * 32 + "\n"
+                                        "✅ *SOP lokal dan Guardrails optimasi Exit telah diperbarui otomatis!*"
+                                    )
+                                    await self.notifier.send_message(be_alert)
                         # 0. Cooldown pasca Loss: Jika trade sebelumnya pada simbol ini terkena SL dalam 15 menit terakhir, jeda sejenak untuk mencegah overtrading
                         is_cooldown, cooldown_reason = signal_tracker.is_loss_cooldown(symbol, cooldown_minutes=15)
                         if is_cooldown:
@@ -1790,10 +1805,14 @@ def main() -> None:
         print("\n🧠 Menjalankan Evaluasi & Optimasi Mandiri AI (Self-Reflection)...")
         res = signal_tracker.reflect_and_self_optimize(engine, min_losses=1)
         if res:
-            print("\n✅ Refleksi selesai! Aturan pantangan baru disuntikkan ke ChromaDB:\n")
+            print("\n✅ Refleksi LOSS selesai! Aturan pantangan baru disuntikkan ke ChromaDB:\n")
             print(res)
-        else:
-            print("\nℹ️ Belum ada riwayat kerugian baru yang perlu dievaluasi.")
+        be_res = signal_tracker.reflect_and_self_optimize_breakeven(engine, min_breakevens=1)
+        if be_res:
+            print("\n🛡️ Audit BREAKEVEN selesai! Aturan optimasi exit baru disuntikkan ke ChromaDB:\n")
+            print(be_res)
+        if not res and not be_res:
+            print("\nℹ️ Belum ada riwayat LOSS atau BREAKEVEN baru yang perlu dievaluasi.")
         return
 
     symbols_list = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
