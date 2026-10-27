@@ -771,15 +771,16 @@ TUGAS ANDA:
 
         return list(active_syms)
 
-    def has_cluster_conflict(self, symbol: str) -> Tuple[bool, Optional[str], Optional[str]]:
-        """Check if symbol conflicts with any open position within the same currency cluster (Correlation Shield).
+    def has_cluster_conflict(self, symbol: str, max_per_cluster: int = 2) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Check if symbol conflicts with open positions within the same currency cluster (Correlation Shield).
+        Allows up to max_per_cluster concurrent positions from the same cluster, but strictly enforces 1 active trade per exact symbol.
         
         Returns:
             (is_blocked, cluster_name, conflicting_active_symbol)
         """
         from currency_clusters import get_cluster_conflicts
         active_symbols = self.get_all_active_symbols()
-        return get_cluster_conflicts(symbol, active_symbols)
+        return get_cluster_conflicts(symbol, active_symbols, max_per_cluster=max_per_cluster)
 
     def has_open_position(self, symbol: str) -> bool:
         """Check if symbol currently has an active open position in MT5 or DB to prevent duplicate orders."""

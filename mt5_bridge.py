@@ -299,18 +299,18 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(err)
         return {"success": False, "error": err}
 
-    # 0. CORRELATION SHIELD & STRICT MAX 1 ACTIVE POSITION PER CLUSTER
+    # 0. CORRELATION SHIELD (MAX 2 PER CLUSTER, MAX 1 PER EXACT SYMBOL)
     try:
         from currency_clusters import get_cluster_conflicts
         open_positions = mt5.positions_get()
         if open_positions:
             active_syms = [p.symbol for p in open_positions]
-            is_blocked, cluster_name, conflicting_sym = get_cluster_conflicts(symbol, active_syms)
+            is_blocked, cluster_name, conflicting_sym = get_cluster_conflicts(symbol, active_syms, max_per_cluster=2)
             if is_blocked:
                 err = (
                     f"🛡️ [CORRELATION SHIELD VETO] Order {action_str} {symbol} ditolak: "
-                    f"Sudah ada posisi aktif di kluster '{cluster_name}' ({conflicting_sym}). "
-                    f"Maksimal 1 posisi aktif per kluster demi proteksi modal!"
+                    f"Batas aktif kluster '{cluster_name}' tercapai ({conflicting_sym}). "
+                    f"Maksimal 2 posisi aktif per kluster (dan 1 posisi per simbol) demi proteksi modal!"
                 )
                 logger.warning(err)
                 return {"success": False, "error": err}

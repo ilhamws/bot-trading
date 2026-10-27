@@ -102,12 +102,16 @@
   * **Dynamic EMA 20/50 Pullback, Role Reversal RBS & SBR, Institutional VWAP Bands, dan Breaker Block** difungsikan murni sebagai **Zona Lokasi Nilai (Where)**.
   * **Kewajiban Mutlak Candlestick Reversal (Steve Nison SOP):** Dilarang keras membuka posisi HANYA karena harga menyentuh garis EMA atau level SBR/RBS. Entri WAJIB dipicu oleh formasi candlestick rejection fisik (Hammer, Shooting Star, Engulfing body $\ge 1.1\times$, Tweezer, Three Soldiers/Crows). Tanpa pola candlestick terkonfirmasi, sinyal otomatis dibatalkan!
 * **Correlation Shield (Perisai Korelasi Mata Uang):**
-  * Maksimal **1 posisi aktif per keluarga mata uang** di seluruh terminal MT5 (`currency_clusters.py`):
+  * Maksimal **2 posisi aktif per keluarga mata uang** di seluruh terminal MT5 (`currency_clusters.py`), dengan **Strict Max 1 Posisi per Simbol yang Sama** (mencegah duplikasi order).
+  * Memberikan fleksibilitas lebih banyak entri (misal: 1 USDJPY + 1 GBPJPY diizinkan berjalan berbarengan), namun menolak jika ada pair ke-3 di kluster yang sama untuk mencegah over-exposure.
+  * Kluster yang dimonitor:
     * **JPY Cluster:** `USDJPY`, `GBPJPY`, `EURJPY`, `AUDJPY`, `CADJPY`, `CHFJPY`.
     * **EUR/GBP Majors Cluster:** `EURUSD`, `GBPUSD`, `EURGBP`.
-    * **Commodity FX Cluster:** `USDCAD`, `AUDUSD`, `NZDUSD`.
+    * **Commodity FX Cluster:** `USDCAD`, `AUDUSD`, `NZDUSD`, `AUDCAD`.
+    * **EUR Crosses Cluster:** `EURCAD`, `EURAUD`, `EURCHF`.
+    * **GBP Crosses Cluster:** `GBPCAD`, `GBPAUD`.
     * **Gold / Logam Mulia:** `XAUUSD`, `GOLD`.
-  * Membatalkan order baru pada kluster yang sama jika sudah ada transaksi berjalan, mencegah *cluster risk* dan kerugian serentak.
+    * **CHF Cluster:** `USDCHF`.
 
 ---
 
