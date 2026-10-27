@@ -88,6 +88,11 @@
 * **Engulfing & Pullback Calibration:**
   * Rasio body Engulfing diatur $\ge 1.05\times$ body candle lawan (menghilangkan dead zone).
   * Konteks RSI untuk pola reversal / retest: Bearish diizinkan pada RSI $\ge 42.0$ (pullback dalam tren turun) dan Bullish pada RSI $\le 55.0$ (pullback dalam tren naik).
+* **4 Teknik Institusional Sinergis Tambahan:**
+  * **Dynamic EMA 20/50 Pullback:** Menangkap kelanjutan tren saat harga menguji zona nilai antara EMA 20 dan 50 dengan konfirmasi sumbu penolakan ($\ge 20\%$) searah tren MTF 15m.
+  * **Role Reversal Struktur Klasik (RBS & SBR):** Menangkap entri *break-and-retest* pada level Swing High/Low horizontal sebelumnya yang berhasil ditembus.
+  * **Institutional VWAP & Standard Deviation Bands ($\pm 2\sigma$):** Menangkap pembalikan *mean reversion* di sesi konsolidasi (Asia) saat menyentuh pita $\pm 2\sigma$, serta pantulan kelanjutan tren di garis tengah VWAP pada sesi London/NY.
+  * **Breaker Block (SMC Lanjutan):** Menangkap pembalikan tajam dari Order Block yang gagal/ditembus (*failed auction*) dan beralih peran menjadi zona support/resistance baru.
 
 ---
 

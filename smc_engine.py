@@ -276,6 +276,28 @@ class SMCEngine:
                         smc_details.append(f"Bearish OB Zone: {bottom:.5f}-{top:.5f}")
                         break
 
+                # Breaker Blocks (Violated Order Blocks Flipped into Support / Resistance - ICT Failed Auction)
+                breached_bear_ob = recent_ob[(recent_ob["OB"] == -1) & (recent_ob["MitigatedIndex"] != 0)]
+                breached_bull_ob = recent_ob[(recent_ob["OB"] == 1) & (recent_ob["MitigatedIndex"] != 0)]
+
+                for _, row in breached_bear_ob.iterrows():
+                    top = row["Top"]
+                    bottom = row["Bottom"]
+                    # Former Bearish OB broken upwards -> now acts as Bullish Breaker Support
+                    if (bottom <= curr_price <= top) or abs(curr_price - top) <= (atr_val * 0.35):
+                        bull_confluences.append("Bullish Breaker Block Retest (Failed Supply Flip)")
+                        smc_details.append(f"Bullish Breaker Zone: {bottom:.5f}-{top:.5f}")
+                        break
+
+                for _, row in breached_bull_ob.iterrows():
+                    top = row["Top"]
+                    bottom = row["Bottom"]
+                    # Former Bullish OB broken downwards -> now acts as Bearish Breaker Resistance
+                    if (bottom <= curr_price <= top) or abs(curr_price - bottom) <= (atr_val * 0.35):
+                        bear_confluences.append("Bearish Breaker Block Retest (Failed Demand Flip)")
+                        smc_details.append(f"Bearish Breaker Zone: {bottom:.5f}-{top:.5f}")
+                        break
+
                 # BOS & CHoCH Market Structure
                 bc_res = smc.bos_choch(df_norm, swings)
                 recent_bc = bc_res.iloc[-10:]

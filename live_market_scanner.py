@@ -1197,13 +1197,16 @@ class LiveMarketScanner:
         for b_conf in smc_data.get("bull_confluences", []):
             bull_matches.append(b_conf)
 
-        # 5 Pilar Teknikal Lanjutan (Chart Patterns, RSI Divergence, Fibonacci, Killzones, BB Squeeze)
+        # 8 Pilar Teknikal Lanjutan (Chart Patterns, RSI Divergence, Fibonacci, Killzones, BB Squeeze, EMA Pullback, RBS/SBR, VWAP)
         adv_tech = advanced_technicals.analyze(
             df=df,
             rsi_series=rsi_series,
             bb_upper=bb_upper,
             bb_lower=bb_lower,
             bb_basis=bb_basis,
+            ema20_series=ema20_series,
+            ema50_series=ema50_series,
+            cur_ema200=cur_ema200,
             cur_idx=cur_idx,
         )
         for b_conf in adv_tech.get("bull_confluences", []):
@@ -1303,19 +1306,30 @@ class LiveMarketScanner:
             "Three Inside Up", "Three White Soldiers", "Bullish Kicker",
             "Double Bottom (W-Pattern)", "Inverse Head and Shoulders Reversal",
             "Bullish FVG Retest (Unmitigated)", "Institutional Bullish Order Block",
-            "Bullish CHoCH (Structure Shift)", "Sell-side Liquidity Sweep (SSL)"
+            "Bullish CHoCH (Structure Shift)", "Sell-side Liquidity Sweep (SSL)",
+            "Role Reversal RBS (Resistance Became Support Retest)",
+            "Bullish Breaker Block Retest (Failed Supply Flip)",
+            "Institutional VWAP -2σ Mean Reversion (Oversold Bounce)"
         }
         # Pola Candlestick & SMC Kelanjutan Tren Bullish (Breakout Continuation BUY)
         BULLISH_CONTINUATION_PATTERNS = {
             "Bullish Engulfing", "Three White Soldiers", "Bullish Kicker", "Rising Three Methods",
             "Bull Flag Breakout (High-Probability Continuation)",
-            "Bullish BOS (Trend Expansion)"
+            "Bullish BOS (Trend Expansion)",
+            "Bullish Dynamic EMA Pullback (EMA 20/50 Trend Bounce)",
+            "Role Reversal RBS (Resistance Became Support Retest)",
+            "Institutional VWAP Baseline Trend Bounce (Bullish)",
+            "Bullish Breaker Block Retest (Failed Supply Flip)"
         }
         # Pola Candlestick & SMC Kelanjutan Tren Bearish (Breakout Continuation SELL)
         BEARISH_CONTINUATION_PATTERNS = {
             "Bearish Engulfing", "Three Black Crows", "Bearish Kicker", "Falling Three Methods",
             "Bear Flag Breakdown (High-Probability Continuation)",
-            "Bearish BOS (Trend Expansion)"
+            "Bearish BOS (Trend Expansion)",
+            "Bearish Dynamic EMA Pullback (EMA 20/50 Trend Bounce)",
+            "Role Reversal SBR (Support Became Resistance Retest)",
+            "Institutional VWAP Baseline Trend Bounce (Bearish)",
+            "Bearish Breaker Block Retest (Failed Demand Flip)"
         }
         # Pola Candlestick & SMC Pembalikan Puncak Bearish (Top Reversal SELL)
         BEARISH_REVERSAL_PATTERNS = {
@@ -1323,7 +1337,10 @@ class LiveMarketScanner:
             "Tweezer Top", "Bearish Harami", "Bearish Abandoned Baby", "Three Inside Down",
             "Double Top (M-Pattern)", "Head and Shoulders Reversal",
             "Bearish FVG Retest (Unmitigated)", "Institutional Bearish Order Block",
-            "Bearish CHoCH (Structure Shift)", "Buy-side Liquidity Sweep (BSL)"
+            "Bearish CHoCH (Structure Shift)", "Buy-side Liquidity Sweep (BSL)",
+            "Role Reversal SBR (Support Became Resistance Retest)",
+            "Bearish Breaker Block Retest (Failed Demand Flip)",
+            "Institutional VWAP +2σ Mean Reversion (Overbought Rejection)"
         }
 
         has_bull_reversal = any(m in BULLISH_REVERSAL_PATTERNS for m in bull_matches)

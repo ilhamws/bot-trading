@@ -23,9 +23,12 @@ class AdvancedTechnicalsEngine:
         bb_upper: pd.Series,
         bb_lower: pd.Series,
         bb_basis: pd.Series,
+        ema20_series: Optional[pd.Series] = None,
+        ema50_series: Optional[pd.Series] = None,
+        cur_ema200: Optional[float] = None,
         cur_idx: int = -1
     ) -> Dict[str, Any]:
-        """Run all 5 advanced technical evaluations on OHLCV data."""
+        """Run all institutional technical evaluations on OHLCV data."""
         if len(df) < 30:
             return {
                 "bull_confluences": [],
@@ -79,6 +82,34 @@ class AdvancedTechnicalsEngine:
             bear_confluences.append(be_sq)
         if sq_res.get("note"):
             details.append(sq_res["note"])
+
+        # 6. DYNAMIC EMA 20/50 PULLBACK & BOUNCE (AL BROOKS & ALEXANDER ELDER)
+        if ema20_series is not None and ema50_series is not None:
+            ema_pb_res = self.detect_ema_dynamic_pullback(df, ema20_series, ema50_series, cur_idx)
+            for b_pb in ema_pb_res.get("bull", []):
+                bull_confluences.append(b_pb)
+            for be_pb in ema_pb_res.get("bear", []):
+                bear_confluences.append(be_pb)
+            if ema_pb_res.get("note"):
+                details.append(ema_pb_res["note"])
+
+        # 7. ROLE REVERSAL STRUKTUR KLASIK (RBS / SBR)
+        rbs_sbr_res = self.detect_rbs_sbr(df, cur_idx)
+        for b_rbs in rbs_sbr_res.get("bull", []):
+            bull_confluences.append(b_rbs)
+        for be_sbr in rbs_sbr_res.get("bear", []):
+            bear_confluences.append(be_sbr)
+        if rbs_sbr_res.get("note"):
+            details.append(rbs_sbr_res["note"])
+
+        # 8. INSTITUTIONAL VWAP & STANDARD DEVIATION BANDS (+/- 2 SIGMA)
+        vwap_res = self.detect_vwap_signals(df, cur_ema200=cur_ema200, cur_idx=cur_idx)
+        for b_vw in vwap_res.get("bull", []):
+            bull_confluences.append(b_vw)
+        for be_vw in vwap_res.get("bear", []):
+            bear_confluences.append(be_vw)
+        if vwap_res.get("note"):
+            details.append(vwap_res["note"])
 
         summary_text = " | ".join(details) if details else "Advanced Technicals Standby"
 
@@ -364,6 +395,213 @@ class AdvancedTechnicalsEngine:
             note = f"Bollinger Squeeze Aktif (Kompresi Volatilitas: {cur_bw:.4f})"
 
         return {"bull": bull, "bear": bear, "note": note}
+
+    # =========================================================================
+    # 6. DYNAMIC EMA 20/50 PULLBACK & BOUNCE (AL BROOKS & ALEXANDER ELDER)
+    # =========================================================================
+    def detect_ema_dynamic_pullback(
+        self,
+        df: pd.DataFrame,
+        ema20_series: pd.Series,
+        ema50_series: pd.Series,
+        cur_idx: int = -1
+    ) -> Dict[str, Any]:
+        """Detect Dynamic EMA 20 / 50 Pullback & Bounce.
+        Trend continuation scalp where price tests the value zone between EMA 20 & 50
+        and confirms with a rejection wick and close in the trend direction.
+        """
+        bull: List[str] = []
+        bear: List[str] = []
+        note = None
+
+        if len(df) < 50:
+            return {"bull": [], "bear": [], "note": None}
+
+        c_open = float(df["Open" if "Open" in df.columns else "open"].iloc[cur_idx])
+        c_high = float(df["High" if "High" in df.columns else "high"].iloc[cur_idx])
+        c_low = float(df["Low" if "Low" in df.columns else "low"].iloc[cur_idx])
+        c_close = float(df["Close" if "Close" in df.columns else "close"].iloc[cur_idx])
+
+        cur_ema20 = float(ema20_series.iloc[cur_idx])
+        cur_ema50 = float(ema50_series.iloc[cur_idx])
+        prev_ema20 = float(ema20_series.iloc[cur_idx - 1])
+
+        candle_range = max(c_high - c_low, 1e-6)
+        lower_wick = max(0.0, min(c_open, c_close) - c_low)
+        upper_wick = max(0.0, c_high - max(c_open, c_close))
+        lower_wick_ratio = lower_wick / candle_range
+        upper_wick_ratio = upper_wick / candle_range
+
+        # Bullish Dynamic EMA Pullback:
+        # Tren naik: EMA20 > EMA50 dan EMA20 menanjak
+        is_bull_trend = (cur_ema20 > cur_ema50) and (cur_ema20 >= prev_ema20)
+        # Harga menguji zona EMA20-50: Low di bawah atau menyentuh EMA20, tapi Close di atas EMA20
+        tested_bull_zone = (c_low <= cur_ema20 * 1.0005) and (c_close > cur_ema20) and (c_low >= cur_ema50 * 0.9990)
+        has_bull_bounce = (c_close >= c_open or lower_wick_ratio >= 0.25)
+
+        if is_bull_trend and tested_bull_zone and has_bull_bounce:
+            bull.append("Bullish Dynamic EMA Pullback (EMA 20/50 Trend Bounce)")
+            note = f"Dynamic Bullish EMA Pullback (Low: {c_low:.5f} menguji EMA20: {cur_ema20:.5f})"
+
+        # Bearish Dynamic EMA Pullback:
+        # Tren turun: EMA20 < EMA50 dan EMA20 menukik
+        is_bear_trend = (cur_ema20 < cur_ema50) and (cur_ema20 <= prev_ema20)
+        # Harga menguji zona EMA20-50: High di atas atau menyentuh EMA20, tapi Close di bawah EMA20
+        tested_bear_zone = (c_high >= cur_ema20 * 0.9995) and (c_close < cur_ema20) and (c_high <= cur_ema50 * 1.0010)
+        has_bear_rejection = (c_close <= c_open or upper_wick_ratio >= 0.25)
+
+        if is_bear_trend and tested_bear_zone and has_bear_rejection:
+            bear.append("Bearish Dynamic EMA Pullback (EMA 20/50 Trend Bounce)")
+            note = f"Dynamic Bearish EMA Pullback (High: {c_high:.5f} menguji EMA20: {cur_ema20:.5f})"
+
+        return {"bull": bull, "bear": bear, "note": note}
+
+    # =========================================================================
+    # 7. ROLE REVERSAL STRUKTUR KLASIK (RBS / SBR - EDWARDS & MAGEE 1948)
+    # =========================================================================
+    def detect_rbs_sbr(self, df: pd.DataFrame, cur_idx: int = -1) -> Dict[str, Any]:
+        """Detect Role Reversal (Resistance Became Support / Support Became Resistance).
+        Classic structural break-and-retest.
+        """
+        bull: List[str] = []
+        bear: List[str] = []
+        note = None
+
+        if len(df) < 35:
+            return {"bull": [], "bear": [], "note": None}
+
+        highs = df["High" if "High" in df.columns else "high"]
+        lows = df["Low" if "Low" in df.columns else "low"]
+        closes = df["Close" if "Close" in df.columns else "close"]
+        opens = df["Open" if "Open" in df.columns else "open"]
+
+        c_open = float(opens.iloc[cur_idx])
+        c_high = float(highs.iloc[cur_idx])
+        c_low = float(lows.iloc[cur_idx])
+        c_close = float(closes.iloc[cur_idx])
+
+        window = 3
+        lookback = 30
+        start_idx = max(0, len(df) - lookback)
+        end_idx = len(df) - 3
+
+        swing_highs = []
+        swing_lows = []
+
+        for i in range(start_idx + window, end_idx):
+            h_val = float(highs.iloc[i])
+            l_val = float(lows.iloc[i])
+            if all(h_val >= float(highs.iloc[i - k]) and h_val >= float(highs.iloc[i + k]) for k in range(1, window + 1)):
+                swing_highs.append((i, h_val))
+            if all(l_val <= float(lows.iloc[i - k]) and l_val <= float(lows.iloc[i + k]) for k in range(1, window + 1)):
+                swing_lows.append((i, l_val))
+
+        # Check RBS (Resistance Becomes Support)
+        for idx, res_level in swing_highs:
+            subsequent_closes = closes.iloc[idx + 1: cur_idx]
+            if not subsequent_closes.empty and float(subsequent_closes.max()) > res_level:
+                tol = res_level * 0.0006
+                if (c_low <= res_level + tol) and (c_close >= res_level - tol):
+                    candle_range = max(c_high - c_low, 1e-6)
+                    lower_wick = max(0.0, min(c_open, c_close) - c_low)
+                    if (lower_wick / candle_range >= 0.20) or (c_close > c_open):
+                        bull.append("Role Reversal RBS (Resistance Became Support Retest)")
+                        note = f"Struktur RBS Retest (Level: {res_level:.5f})"
+                        break
+
+        # Check SBR (Support Becomes Resistance)
+        for idx, sup_level in swing_lows:
+            subsequent_closes = closes.iloc[idx + 1: cur_idx]
+            if not subsequent_closes.empty and float(subsequent_closes.min()) < sup_level:
+                tol = sup_level * 0.0006
+                if (c_high >= sup_level - tol) and (c_close <= sup_level + tol):
+                    candle_range = max(c_high - c_low, 1e-6)
+                    upper_wick = max(0.0, c_high - max(c_open, c_close))
+                    if (upper_wick / candle_range >= 0.20) or (c_close < c_open):
+                        bear.append("Role Reversal SBR (Support Became Resistance Retest)")
+                        note = f"Struktur SBR Retest (Level: {sup_level:.5f})"
+                        break
+
+        return {"bull": bull, "bear": bear, "note": note}
+
+    # =========================================================================
+    # 8. INSTITUTIONAL VWAP & STANDARD DEVIATION BANDS (+/- 2 SIGMA)
+    # =========================================================================
+    def detect_vwap_signals(
+        self,
+        df: pd.DataFrame,
+        cur_ema200: Optional[float] = None,
+        cur_idx: int = -1
+    ) -> Dict[str, Any]:
+        """Detect Institutional VWAP & Standard Deviation Bands (+/- 2 sigma).
+        - Mean Reversion: Price touches +/- 2 sigma band with rejection in ranging conditions.
+        - Baseline Bounce: Price retests VWAP center line in strong trend conditions.
+        """
+        bull: List[str] = []
+        bear: List[str] = []
+        note = None
+
+        if len(df) < 25:
+            return {"bull": [], "bear": [], "note": None}
+
+        highs = df["High" if "High" in df.columns else "high"]
+        lows = df["Low" if "Low" in df.columns else "low"]
+        closes = df["Close" if "Close" in df.columns else "close"]
+        opens = df["Open" if "Open" in df.columns else "open"]
+        vols = df["Volume" if "Volume" in df.columns else "volume"] if "volume" in [c.lower() for c in df.columns] else pd.Series(100.0, index=df.index)
+
+        # Typical Price
+        tp = (highs + lows + closes) / 3.0
+        roll_period = min(len(df), 50)
+        recent_tp = tp.iloc[-roll_period:]
+        recent_vols = vols.iloc[-roll_period:].replace(0, 1.0)
+
+        cum_tp_vol = float((recent_tp * recent_vols).sum())
+        cum_vol = float(recent_vols.sum())
+        vwap_val = cum_tp_vol / (cum_vol + 1e-9)
+
+        variance = float((recent_vols * ((recent_tp - vwap_val) ** 2)).sum()) / (cum_vol + 1e-9)
+        std_dev = np.sqrt(max(variance, 1e-12))
+
+        upper_band_2 = vwap_val + (2.0 * std_dev)
+        lower_band_2 = vwap_val - (2.0 * std_dev)
+
+        c_open = float(opens.iloc[cur_idx])
+        c_high = float(highs.iloc[cur_idx])
+        c_low = float(lows.iloc[cur_idx])
+        c_close = float(closes.iloc[cur_idx])
+        candle_range = max(c_high - c_low, 1e-6)
+        lower_wick = max(0.0, min(c_open, c_close) - c_low)
+        upper_wick = max(0.0, c_high - max(c_open, c_close))
+
+        # A. Mean Reversion at +/- 2 sigma
+        if c_low <= lower_band_2 and (c_close > lower_band_2 or (lower_wick / candle_range >= 0.25)):
+            bull.append("Institutional VWAP -2σ Mean Reversion (Oversold Bounce)")
+            note = f"VWAP -2σ Mean Reversion (Low: {c_low:.5f} <= Lower Band: {lower_band_2:.5f})"
+        elif c_high >= upper_band_2 and (c_close < upper_band_2 or (upper_wick / candle_range >= 0.25)):
+            bear.append("Institutional VWAP +2σ Mean Reversion (Overbought Rejection)")
+            note = f"VWAP +2σ Mean Reversion (High: {c_high:.5f} >= Upper Band: {upper_band_2:.5f})"
+
+        # B. Baseline Bounce at VWAP Center Line
+        if cur_ema200 is not None:
+            tol = std_dev * 0.25
+            if c_close > cur_ema200 and (c_low <= vwap_val + tol) and (c_close >= vwap_val) and (c_close >= c_open):
+                bull.append("Institutional VWAP Baseline Trend Bounce (Bullish)")
+                if not note:
+                    note = f"VWAP Baseline Bullish Bounce ({vwap_val:.5f})"
+            elif c_close < cur_ema200 and (c_high >= vwap_val - tol) and (c_close <= vwap_val) and (c_close <= c_open):
+                bear.append("Institutional VWAP Baseline Trend Bounce (Bearish)")
+                if not note:
+                    note = f"VWAP Baseline Bearish Bounce ({vwap_val:.5f})"
+
+        return {
+            "bull": bull,
+            "bear": bear,
+            "note": note,
+            "vwap": vwap_val,
+            "upper_2": upper_band_2,
+            "lower_2": lower_band_2
+        }
 
 
 # Global singleton instance
