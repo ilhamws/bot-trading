@@ -5,6 +5,7 @@ Supports both Direct Mode (on Windows) and Bridge Queue Mode (from Linux/WSL).
 """
 
 import os
+import re
 import time
 import json
 import logging
@@ -39,9 +40,45 @@ def dispatch_signal_order(
 
     symbol = getattr(decision, "instrument", setup.get("symbol", "EURUSD")).upper()
     timeframe = getattr(decision, "timeframe", setup.get("timeframe", "5m"))
-    price = getattr(decision, "current_price", setup.get("price", 0.0))
-    sl = getattr(decision, "stop_loss", setup.get("dynamic_sl", "N/A"))
-    tp = getattr(decision, "take_profit", setup.get("dynamic_tp", "N/A"))
+
+    def _clean_price(val: Any) -> float:
+        if isinstance(val, (int, float)):
+            return float(val)
+        cleaned = re.sub(r"[^\d\.]", "", str(val or "0"))
+        try:
+            return float(cleaned) if cleaned else 0.0
+        except ValueError:
+            return 0.0
+
+    raw_price = _clean_price(getattr(decision, "current_price", setup.get("price", 0.0)))
+    if raw_price <= 0:
+        raw_price = float(setup.get("price", 0.0))
+
+    sl_dec = _clean_price(getattr(decision, "stop_loss", 0.0))
+    tp_dec = _clean_price(getattr(decision, "take_profit", 0.0))
+    dyn_sl = float(setup.get("dynamic_sl", 0.0) or 0.0)
+    dyn_tp = float(setup.get("dynamic_tp", 0.0) or 0.0)
+
+    # Validasi Stop Loss & Take Profit: Pastikan berada di sisi yang benar dari harga entry
+    is_sl_valid = False
+    if action == "BUY" and 0 < sl_dec < raw_price and abs(raw_price - sl_dec) / raw_price < 0.15:
+        is_sl_valid = True
+    elif action == "SELL" and sl_dec > raw_price and abs(sl_dec - raw_price) / raw_price < 0.15:
+        is_sl_valid = True
+
+    final_sl = sl_dec if is_sl_valid else dyn_sl
+
+    is_tp_valid = False
+    if action == "BUY" and tp_dec > raw_price and abs(tp_dec - raw_price) / raw_price < 0.25:
+        is_tp_valid = True
+    elif action == "SELL" and 0 < tp_dec < raw_price and abs(raw_price - tp_dec) / raw_price < 0.25:
+        is_tp_valid = True
+
+    final_tp = tp_dec if is_tp_valid else dyn_tp
+
+    price = str(raw_price)
+    sl = str(final_sl)
+    tp = str(final_tp)
     reason = getattr(decision, "pattern_name", "") or setup.get("reason", "AI Setup")
 
     order_id = f"ORD_{symbol}_{int(time.time() * 1000)}"

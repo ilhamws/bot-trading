@@ -308,75 +308,119 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
         logger.error(err)
         return {"success": False, "error": err}
 
-    if not symbol_info.visible:
-        if not mt5.symbol_select(symbol, True):
-            err = f"Simbol {symbol} tidak dapat diaktifkan di Market Watch."
-            logger.error(err)
-            return {"success": False, "error": err}
-
-    tick = mt5.symbol_info_tick(symbol)
-    if tick is None:
-        for _ in range(3):
-            time.sleep(0.5)
-            tick = mt5.symbol_info_tick(symbol)
-            if tick is not None:
-                break
-    if tick is None:
-        err = f"Gagal mendapatkan tick harga terkini untuk {symbol}."
-        logger.error(err)
-        return {"success": False, "error": err}
+    # 1. Pastikan simbol aktif di Market Watch dan tunggu tick valid (Bid & Ask > 0)
+    mt5.symbol_select(symbol, True)
+    
+    tick = None
+    for _ in range(10):
+        t = mt5.symbol_info_tick(symbol)
+        if t is not None and t.ask > 0.0 and t.bid > 0.0:
+            tick = t
+            break
+        time.sleep(0.2)
 
     digits = symbol_info.digits
     point = symbol_info.point
 
+    # 2. Tentukan harga eksekusi awal (Prioritas: tick live, fallback: planned_price)
+    planned_price = float(order_data.get("price", 0.0))
+    if tick and tick.ask > 0.0 and tick.bid > 0.0:
+        price = tick.ask if action_str == "BUY" else tick.bid
+    else:
+        price = planned_price
+        logger.warning("⚠️ Tick live untuk %s belum mengalir dari broker, menggunakan planned price: %.5f", symbol, price)
+
+    if price <= 0.0:
+        err = f"Harga eksekusi tidak valid (0.0) untuk {symbol}. Order dibatalkan demi keamanan!"
+        logger.error(err)
+        return {"success": False, "error": err}
+
     if action_str == "BUY":
         order_type = mt5.ORDER_TYPE_BUY
-        price = tick.ask
     elif action_str == "SELL":
         order_type = mt5.ORDER_TYPE_SELL
-        price = tick.bid
     else:
         err = f"Tindakan order tidak valid: {action_str} (Hanya BUY atau SELL)."
         logger.error(err)
         return {"success": False, "error": err}
 
-    # Format SL & TP dinamis yang berjangkar pada harga riil eksekusi (Anti-Slippage Distortion)
+    # 3. Hitung SL & TP dinamis dengan proteksi multi-lapis (Anti-Zero & Anti-Negative Stops)
     sl_val = 0.0
     tp_val = 0.0
-    planned_price = float(order_data.get("price", price))
 
-    if sl_raw and sl_raw != "N/A" and tp_raw and tp_raw != "N/A":
-        try:
-            raw_sl_f = float(sl_raw)
-            raw_tp_f = float(tp_raw)
-            # Hitung jarak absolut dari planned price
-            sl_dist = abs(raw_sl_f - planned_price)
-            tp_dist = abs(raw_tp_f - planned_price)
+    try:
+        raw_sl_f = float(sl_raw) if sl_raw and str(sl_raw) != "N/A" else 0.0
+        raw_tp_f = float(tp_raw) if tp_raw and str(tp_raw) != "N/A" else 0.0
+    except (ValueError, TypeError):
+        raw_sl_f = 0.0
+        raw_tp_f = 0.0
 
-            # Batas minimal higienis SL berbasis aset (mencegah premature hit akibat spread & noise)
-            min_floor = get_asset_min_sl_floor(symbol, price)
-            if sl_dist < min_floor:
-                sl_dist = min_floor
+    min_floor = get_asset_min_sl_floor(symbol, price)
 
-            # Dukungan TP Adaptif (Izinkan pergeseran ke Resistance/Support terdekat minimal 1.25x SL, fallback default 1.5x)
-            min_adaptive_tp = round(sl_dist * 1.25, digits)
-            if tp_dist < min_adaptive_tp:
-                tp_dist = round(sl_dist * 1.5, digits)
+    if raw_sl_f > 0.0:
+        ref_p = planned_price if planned_price > 0.0 else price
+        sl_dist = abs(raw_sl_f - ref_p)
+        if sl_dist < min_floor:
+            sl_dist = min_floor
 
-            # Jangkar SL dan TP ke harga riil eksekusi saat ini
+        tp_dist = abs(raw_tp_f - ref_p) if raw_tp_f > 0.0 else round(sl_dist * 1.5, digits)
+        min_adaptive_tp = round(sl_dist * 1.25, digits)
+        if tp_dist < min_adaptive_tp:
+            tp_dist = round(sl_dist * 1.5, digits)
+
+        if action_str == "BUY":
+            sl_val = round(price - sl_dist, digits)
+            tp_val = round(price + tp_dist, digits)
+        else:
+            sl_val = round(price + sl_dist, digits)
+            tp_val = round(price - tp_dist, digits)
+    else:
+        sl_dist = min_floor
+        tp_dist = round(min_floor * 1.5, digits)
+        if action_str == "BUY":
+            sl_val = round(price - sl_dist, digits)
+            tp_val = round(price + tp_dist, digits)
+        else:
+            sl_val = round(price + sl_dist, digits)
+            tp_val = round(price - tp_dist, digits)
+
+    # 4. VALIDASI MUTLAK / FAIL-SAFE INTEGRITAS STOP LOSS & TAKE PROFIT:
+    is_valid_stops = False
+    if sl_val > 0.0 and tp_val > 0.0:
+        if action_str == "BUY" and sl_val < price and tp_val > price:
+            is_valid_stops = True
+        elif action_str == "SELL" and sl_val > price and tp_val < price:
+            is_valid_stops = True
+
+    if not is_valid_stops:
+        logger.warning("⚠️ Kalkulasi SL/TP berjangkar tidak valid (SL: %s, TP: %s vs Price: %s). Mengaktifkan fallback presisi...",
+                       sl_val, tp_val, price)
+        # Fallback 1: Gunakan raw_sl_f dan raw_tp_f jika berada di sisi yang benar
+        if raw_sl_f > 0.0 and raw_tp_f > 0.0:
+            if action_str == "BUY" and raw_sl_f < price and raw_tp_f > price:
+                sl_val = round(raw_sl_f, digits)
+                tp_val = round(raw_tp_f, digits)
+                is_valid_stops = True
+            elif action_str == "SELL" and raw_sl_f > price and raw_tp_f < price:
+                sl_val = round(raw_sl_f, digits)
+                tp_val = round(raw_tp_f, digits)
+                is_valid_stops = True
+
+        # Fallback 2: Hitung langsung dari min_floor aset
+        if not is_valid_stops:
             if action_str == "BUY":
-                sl_val = round(price - sl_dist, digits)
-                tp_val = round(price + tp_dist, digits)
-            elif action_str == "SELL":
-                sl_val = round(price + sl_dist, digits)
-                tp_val = round(price - tp_dist, digits)
-        except (ValueError, TypeError):
-            # Fallback ke nilai mentah jika parsing gagal
-            try:
-                sl_val = round(float(sl_raw), digits)
-                tp_val = round(float(tp_raw), digits)
-            except Exception:
-                pass
+                sl_val = round(price - min_floor, digits)
+                tp_val = round(price + (min_floor * 1.5), digits)
+            else:
+                sl_val = round(price + min_floor, digits)
+                tp_val = round(price - (min_floor * 1.5), digits)
+            is_valid_stops = True
+
+    # Pengecekan Terakhir: DILARANG KERAS mengirim order tanpa SL/TP yang sah!
+    if sl_val <= 0.0 or tp_val <= 0.0 or (action_str == "BUY" and sl_val >= price) or (action_str == "SELL" and sl_val <= price):
+        err = f"🛑 FATAL: Gagal menentukan SL/TP valid untuk {symbol} (SL: {sl_val}, TP: {tp_val}, Price: {price}). Order DIBATALKAN demi proteksi modal!"
+        logger.critical(err)
+        return {"success": False, "error": err}
 
     # Ensure min volume
     min_volume = symbol_info.volume_min
@@ -410,16 +454,15 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
         if attempt > 1:
             time.sleep(1.5)
             tick = mt5.symbol_info_tick(symbol)
-            if tick:
+            if tick and tick.ask > 0.0 and tick.bid > 0.0:
                 price = tick.ask if action_str == "BUY" else tick.bid
                 request["price"] = price
-                if 'sl_dist' in locals() and sl_dist > 0:
-                    if action_str == "BUY":
-                        request["sl"] = round(price - sl_dist, digits)
-                        request["tp"] = round(price + tp_dist, digits)
-                    else:
-                        request["sl"] = round(price + sl_dist, digits)
-                        request["tp"] = round(price - tp_dist, digits)
+                if action_str == "BUY":
+                    request["sl"] = round(price - sl_dist, digits)
+                    request["tp"] = round(price + tp_dist, digits)
+                else:
+                    request["sl"] = round(price + sl_dist, digits)
+                    request["tp"] = round(price - tp_dist, digits)
 
         logger.info(
             "Mengirim Order ke MT5 (Percobaan %d/%d): %s %s %.2f lot @ %.5f (SL: %.5f, TP: %.5f)...",
@@ -445,7 +488,7 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
 
     if result.retcode != mt5.TRADE_RETCODE_DONE:
         # Fallback untuk broker ECN / Market Execution yang mewajibkan SL/TP dipasang terpisah
-        if (sl_val > 0 or tp_val > 0) and result.retcode in (10016, 10015):
+        if result.retcode in (10016, 10015):
             logger.warning("Broker menolak SL/TP awal (Retcode %s). Mencoba open posisi terlebih dahulu lalu memasang SL/TP...", result.retcode)
             request_no_sltp = dict(request)
             request_no_sltp["sl"] = 0.0
@@ -453,19 +496,55 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
             result = mt5.order_send(request_no_sltp)
             if result and result.retcode == mt5.TRADE_RETCODE_DONE:
                 ticket = result.order
-                time.sleep(0.1)
+                time.sleep(0.2)
+                # Dapatkan harga riil buka untuk memasang SL/TP presisi
+                pos_list = mt5.positions_get(ticket=ticket)
+                real_open = pos_list[0].price_open if (pos_list and len(pos_list) > 0) else price
+                
+                if action_str == "BUY":
+                    mod_sl = round(real_open - sl_dist, digits)
+                    mod_tp = round(real_open + tp_dist, digits)
+                else:
+                    mod_sl = round(real_open + sl_dist, digits)
+                    mod_tp = round(real_open - tp_dist, digits)
+
                 modify_req = {
                     "action": mt5.TRADE_ACTION_SLTP,
                     "position": ticket,
                     "symbol": symbol,
-                    "sl": sl_val,
-                    "tp": tp_val,
+                    "sl": mod_sl,
+                    "tp": mod_tp,
                 }
-                mod_res = mt5.order_send(modify_req)
-                if mod_res and mod_res.retcode == mt5.TRADE_RETCODE_DONE:
-                    logger.info("✅ SL/TP berhasil dipasang ke Ticket #%d!", ticket)
-                else:
-                    logger.warning("⚠️ Gagal menyusulkan SL/TP: %s", mod_res.comment if mod_res else mt5.last_error())
+                mod_res = None
+                for mod_attempt in range(3):
+                    mod_res = mt5.order_send(modify_req)
+                    if mod_res and mod_res.retcode == mt5.TRADE_RETCODE_DONE:
+                        logger.info("✅ SL/TP berhasil dipasang ke Ticket #%d! (SL: %.*f, TP: %.*f)", ticket, digits, mod_sl, digits, mod_tp)
+                        sl_val = mod_sl
+                        tp_val = mod_tp
+                        break
+                    time.sleep(0.5)
+
+                if not mod_res or mod_res.retcode != mt5.TRADE_RETCODE_DONE:
+                    # EMERGENCY CLOSE: Dilarang membiarkan posisi terbuka tanpa SL!
+                    logger.critical("🚨 BAHAYA: Gagal memasang SL/TP ke Ticket #%d (%s)! Menutup posisi seketika demi keamanan!",
+                                    ticket, mod_res.comment if mod_res else mt5.last_error())
+                    t_curr = mt5.symbol_info_tick(symbol)
+                    c_price = (t_curr.bid if action_str == "BUY" else t_curr.ask) if t_curr else price
+                    emergency_close = {
+                        "action": mt5.TRADE_ACTION_DEAL,
+                        "position": ticket,
+                        "symbol": symbol,
+                        "volume": lot,
+                        "type": mt5.ORDER_TYPE_SELL if action_str == "BUY" else mt5.ORDER_TYPE_BUY,
+                        "price": c_price,
+                        "deviation": 25,
+                        "magic": 778899,
+                        "comment": "Emergency Close No SL",
+                        "type_filling": filling_type,
+                    }
+                    mt5.order_send(emergency_close)
+                    return {"success": False, "error": "Order dibatalkan & ditutup darurat karena broker menolak pemasangan SL/TP!"}
             else:
                 err = f"Order ditolak oleh broker! Retcode: {result.retcode if result else 'N/A'} ({result.comment if result else mt5.last_error()})"
                 logger.error(err)
@@ -473,6 +552,7 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
         else:
             err = f"Order ditolak oleh broker! Retcode: {result.retcode} ({result.comment})"
             logger.error(err)
+            return {"success": False, "error": err, "retcode": result.retcode}
             return {"success": False, "error": err, "retcode": result.retcode}
 
     ticket = result.order
@@ -537,6 +617,81 @@ def load_active_positions() -> None:
                     logger.info("📍 Memantau posisi terbuka MT5: Ticket #%d (%s %s)", ticket, data.get("symbol"), data.get("action"))
         except Exception:
             pass
+    # Periksa dan pasang SL/TP darurat jika ada posisi aktif tanpa proteksi
+    fix_unprotected_positions()
+
+
+def fix_unprotected_positions() -> None:
+    """Scan all active MT5 positions and immediately attach emergency SL/TP if missing (sl <= 0 or tp <= 0)."""
+    positions = mt5.positions_get()
+    if not positions:
+        return
+
+    for pos in positions:
+        ticket = pos.ticket
+        sym = pos.symbol
+        # Jika SL dan TP sudah terpasang valid (> 0), lewati
+        if pos.sl > 0.0 and pos.tp > 0.0:
+            continue
+
+        sym_info = mt5.symbol_info(sym)
+        if not sym_info:
+            continue
+        digits = sym_info.digits
+        price_open = pos.price_open
+        is_buy = pos.type == mt5.ORDER_TYPE_BUY
+        min_floor = get_asset_min_sl_floor(sym, price_open)
+
+        order_data = active_positions.get(ticket, {})
+        raw_sl = float(order_data.get("sl") or 0.0)
+        raw_tp = float(order_data.get("tp") or 0.0)
+        plan_p = float(order_data.get("price") or price_open)
+
+        if raw_sl > 0.0 and raw_tp > 0.0:
+            sl_dist = abs(raw_sl - plan_p)
+            tp_dist = abs(raw_tp - plan_p)
+            sl_dist = max(sl_dist, min_floor)
+            tp_dist = max(tp_dist, sl_dist * 1.5)
+        else:
+            sl_dist = min_floor
+            tp_dist = round(min_floor * 1.5, digits)
+
+        if is_buy:
+            fix_sl = round(price_open - sl_dist, digits)
+            fix_tp = round(price_open + tp_dist, digits)
+        else:
+            fix_sl = round(price_open + sl_dist, digits)
+            fix_tp = round(price_open - tp_dist, digits)
+
+        logger.warning(
+            "🔧 [AUTO-REPAIR SL/TP] Mendeteksi posisi terbuka Ticket #%d (%s) TANPA PROTEKSI (SL: %.5f, TP: %.5f)! Memasang SL/TP darurat...",
+            ticket, sym, pos.sl, pos.tp
+        )
+        req = {
+            "action": mt5.TRADE_ACTION_SLTP,
+            "position": ticket,
+            "symbol": sym,
+            "sl": fix_sl,
+            "tp": fix_tp,
+        }
+        res = mt5.order_send(req)
+        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+            logger.info("✅ [AUTO-REPAIR SL/TP] SUKSES! SL/TP darurat berhasil dipasang ke Ticket #%d (SL: %.*f, TP: %.*f)!",
+                        ticket, digits, fix_sl, digits, fix_tp)
+            send_telegram_alert(
+                f"🛡️ *SL/TP DARURAT BERHASIL DIPASANG!* 🛡️\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"🎟️ *Ticket ID:* `#{ticket}`\n"
+                f"📊 *Instrumen:* `{sym}`\n"
+                f"💵 *Harga Open:* `{price_open:.{digits}f}`\n"
+                f"🛑 *Stop Loss Baru:* `{fix_sl:.{digits}f}`\n"
+                f"🎯 *Take Profit Baru:* `{fix_tp:.{digits}f}`\n"
+                f"━━━━━━━━━━━━━━━━━━━━\n"
+                f"✅ _Posisi kini 100% terlindungi dari risiko kerugian tanpa batas._"
+            )
+        else:
+            logger.critical("❌ [AUTO-REPAIR SL/TP] Gagal memasang SL/TP darurat ke Ticket #%d: %s",
+                            ticket, res.comment if res else mt5.last_error())
 
 
 def check_breakeven_protection() -> None:
@@ -762,6 +917,9 @@ def process_queue() -> None:
     
     while True:
         try:
+            # 0. Periksa & pasang SL/TP darurat otomatis jika ada posisi yang terbuka tanpa proteksi
+            fix_unprotected_positions()
+
             # 1. Periksa posisi yang ditutup oleh SL / TP di MT5
             check_closed_positions()
 
@@ -823,10 +981,18 @@ def main():
     parser = argparse.ArgumentParser(description="MetaTrader 5 Windows Bridge for AI Trading Bot")
     parser.add_argument("--test", action="store_true", help="Tes koneksi ke MT5 Desktop tanpa order")
     parser.add_argument("--symbols", action="store_true", help="Tampilkan daftar simbol yang tersedia di broker MT5")
+    parser.add_argument("--fix-stops", action="store_true", help="Pasang SL/TP darurat seketika ke seluruh posisi aktif yang tidak memiliki proteksi")
     args = parser.parse_args()
 
     if not init_mt5():
         sys.exit(1)
+
+    if args.fix_stops:
+        logger.info("Memeriksa dan memasang SL/TP darurat ke seluruh posisi terbuka di MT5...")
+        load_active_positions()
+        fix_unprotected_positions()
+        mt5.shutdown()
+        return
 
     if args.symbols:
         logger.info("Mencari daftar simbol di MT5...")
