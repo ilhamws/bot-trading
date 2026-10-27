@@ -47,6 +47,12 @@ YF_SYMBOL_MAP = {
     "GBPUSD": "GBPUSD=X",
     "USDJPY": "USDJPY=X",
     "AUDUSD": "AUDUSD=X",
+    "USDCAD": "USDCAD=X",
+    "USDCHF": "USDCHF=X",
+    "NZDUSD": "NZDUSD=X",
+    "EURGBP": "EURGBP=X",
+    "EURJPY": "EURJPY=X",
+    "GBPJPY": "GBPJPY=X",
     "XAUUSD": "GC=F",      # Gold Futures
     "BTCUSD": "BTC-USD",
     "BBCA": "BBCA.JK",
