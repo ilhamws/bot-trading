@@ -602,7 +602,7 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def load_active_positions() -> None:
+def load_active_positions(close_if_breached: bool = False) -> None:
     """Load previously executed orders that are still open in MT5."""
     for f in EXECUTED_DIR.glob("*.json"):
         try:
@@ -618,11 +618,13 @@ def load_active_positions() -> None:
         except Exception:
             pass
     # Periksa dan pasang SL/TP darurat jika ada posisi aktif tanpa proteksi
-    fix_unprotected_positions()
+    fix_unprotected_positions(close_if_breached=close_if_breached)
 
 
-def fix_unprotected_positions() -> None:
-    """Scan all active MT5 positions and immediately attach emergency SL/TP if missing (sl <= 0 or tp <= 0)."""
+def fix_unprotected_positions(close_if_breached: bool = False) -> None:
+    """Scan all active MT5 positions and immediately attach emergency SL/TP if missing (sl <= 0 or tp <= 0).
+    Ensures SL and TP are strictly compliant with current live market price and broker stops level to eliminate 'Invalid stops'.
+    """
     positions = mt5.positions_get()
     if not positions:
         return
@@ -638,6 +640,7 @@ def fix_unprotected_positions() -> None:
         if not sym_info:
             continue
         digits = sym_info.digits
+        point = sym_info.point
         price_open = pos.price_open
         is_buy = pos.type == mt5.ORDER_TYPE_BUY
         min_floor = get_asset_min_sl_floor(sym, price_open)
@@ -656,16 +659,68 @@ def fix_unprotected_positions() -> None:
             sl_dist = min_floor
             tp_dist = round(min_floor * 1.5, digits)
 
+        intended_sl = round(price_open - sl_dist if is_buy else price_open + sl_dist, digits)
+        intended_tp = round(price_open + tp_dist if is_buy else price_open - tp_dist, digits)
+
+        # 1. Dapatkan tick live terkini untuk memastikan SL/TP valid di sisi harga pasar sekarang
+        mt5.symbol_select(sym, True)
+        tick = mt5.symbol_info_tick(sym)
+        if not tick or tick.bid <= 0.0 or tick.ask <= 0.0:
+            time.sleep(0.3)
+            tick = mt5.symbol_info_tick(sym)
+
+        cur_bid = tick.bid if tick else price_open
+        cur_ask = tick.ask if tick else price_open
+        stops_level = sym_info.trade_stops_level * point
+        spread_dist = sym_info.spread * point
+        min_stop_distance = max(stops_level, spread_dist, 10 * point)
+
+        # Cek apakah harga pasar sudah melampaui intended SL saat posisi berjalan telanjang
+        is_already_breached = False
+        if is_buy and cur_bid <= intended_sl:
+            is_already_breached = True
+        elif not is_buy and cur_ask >= intended_sl:
+            is_already_breached = True
+
+        if is_already_breached and close_if_breached:
+            logger.warning(
+                "🚨 [EMERGENCY CLOSE] Posisi Ticket #%d (%s) telah menembus intended SL (%.5f vs CurPrice: %.5f). Menutup posisi di harga pasar...",
+                ticket, sym, intended_sl, cur_bid if is_buy else cur_ask
+            )
+            close_req = {
+                "action": mt5.TRADE_ACTION_DEAL,
+                "position": ticket,
+                "symbol": sym,
+                "volume": pos.volume,
+                "type": mt5.ORDER_TYPE_SELL if is_buy else mt5.ORDER_TYPE_BUY,
+                "price": cur_bid if is_buy else cur_ask,
+                "deviation": 25,
+                "magic": 778899,
+                "comment": "SL Breached Auto-Close",
+                "type_filling": get_filling_type(sym_info),
+            }
+            c_res = mt5.order_send(close_req)
+            if c_res and c_res.retcode == mt5.TRADE_RETCODE_DONE:
+                logger.info("✅ Sukses menutup darurat posisi breached Ticket #%d (%s)!", ticket, sym)
+                continue
+
+        # Hitung SL/TP legal yang PASTI diterima broker (tidak akan pernah memicu 'Invalid stops')
         if is_buy:
-            fix_sl = round(price_open - sl_dist, digits)
-            fix_tp = round(price_open + tp_dist, digits)
+            max_legal_sl = round(cur_bid - min_stop_distance, digits)
+            min_legal_tp = round(cur_ask + min_stop_distance, digits)
+            # Jika harga sudah turun melampaui intended_sl, pasang SL tepat di bawah harga pasar saat ini agar valid
+            fix_sl = min(intended_sl, max_legal_sl)
+            fix_tp = max(intended_tp, min_legal_tp)
         else:
-            fix_sl = round(price_open + sl_dist, digits)
-            fix_tp = round(price_open - tp_dist, digits)
+            min_legal_sl = round(cur_ask + min_stop_distance, digits)
+            max_legal_tp = round(cur_bid - min_stop_distance, digits)
+            # Jika harga sudah naik melampaui intended_sl, pasang SL tepat di atas harga pasar saat ini agar valid
+            fix_sl = max(intended_sl, min_legal_sl)
+            fix_tp = min(intended_tp, max_legal_tp)
 
         logger.warning(
-            "🔧 [AUTO-REPAIR SL/TP] Mendeteksi posisi terbuka Ticket #%d (%s) TANPA PROTEKSI (SL: %.5f, TP: %.5f)! Memasang SL/TP darurat...",
-            ticket, sym, pos.sl, pos.tp
+            "🔧 [AUTO-REPAIR SL/TP] Mendeteksi posisi terbuka Ticket #%d (%s) TANPA PROTEKSI (Open: %.5f, CurPrice: %.5f)! Memasang SL: %.5f, TP: %.5f...",
+            ticket, sym, price_open, cur_bid if is_buy else cur_ask, fix_sl, fix_tp
         )
         req = {
             "action": mt5.TRADE_ACTION_SLTP,
@@ -684,14 +739,15 @@ def fix_unprotected_positions() -> None:
                 f"🎟️ *Ticket ID:* `#{ticket}`\n"
                 f"📊 *Instrumen:* `{sym}`\n"
                 f"💵 *Harga Open:* `{price_open:.{digits}f}`\n"
+                f"📈 *Harga Saat Ini:* `{(cur_bid if is_buy else cur_ask):.{digits}f}`\n"
                 f"🛑 *Stop Loss Baru:* `{fix_sl:.{digits}f}`\n"
                 f"🎯 *Take Profit Baru:* `{fix_tp:.{digits}f}`\n"
                 f"━━━━━━━━━━━━━━━━━━━━\n"
                 f"✅ _Posisi kini 100% terlindungi dari risiko kerugian tanpa batas._"
             )
         else:
-            logger.critical("❌ [AUTO-REPAIR SL/TP] Gagal memasang SL/TP darurat ke Ticket #%d: %s",
-                            ticket, res.comment if res else mt5.last_error())
+            logger.critical("❌ [AUTO-REPAIR SL/TP] Gagal memasang SL/TP darurat ke Ticket #%d: %s (Req: SL=%.5f, TP=%.5f, CurBid=%.5f, CurAsk=%.5f)",
+                            ticket, res.comment if res else mt5.last_error(), fix_sl, fix_tp, cur_bid, cur_ask)
 
 
 def check_breakeven_protection() -> None:
@@ -982,15 +1038,16 @@ def main():
     parser.add_argument("--test", action="store_true", help="Tes koneksi ke MT5 Desktop tanpa order")
     parser.add_argument("--symbols", action="store_true", help="Tampilkan daftar simbol yang tersedia di broker MT5")
     parser.add_argument("--fix-stops", action="store_true", help="Pasang SL/TP darurat seketika ke seluruh posisi aktif yang tidak memiliki proteksi")
+    parser.add_argument("--close-breached", action="store_true", help="Tutup darurat posisi jika harga pasar saat ini telah menembus level intended SL")
     args = parser.parse_args()
 
     if not init_mt5():
         sys.exit(1)
 
-    if args.fix_stops:
-        logger.info("Memeriksa dan memasang SL/TP darurat ke seluruh posisi terbuka di MT5...")
-        load_active_positions()
-        fix_unprotected_positions()
+    if args.fix_stops or args.close_breached:
+        action_desc = "Memeriksa dan menutup posisi breached / memasang SL/TP darurat" if args.close_breached else "Memeriksa dan memasang SL/TP darurat"
+        logger.info("%s ke seluruh posisi terbuka di MT5...", action_desc)
+        load_active_positions(close_if_breached=args.close_breached)
         mt5.shutdown()
         return
 
