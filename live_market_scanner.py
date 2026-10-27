@@ -1551,6 +1551,90 @@ class LiveMarketScanner:
             logger.info("🚫 [DIVERGENCE VETO] Sinyal BUY dibatalkan karena terdeteksi Bearish RSI Divergence (indikasi kuat tekanan/penurunan tajam).")
             bull_matches = []
 
+        # Anti-Proximity Veto (Anti-Buying into Resistance & Anti-Selling into Support):
+        # Mencegah entry terjepit langsung di bawah Resistance kuat atau tepat di atas Support kuat tanpa ruang (headroom) yang cukup menuju TP
+        sl_dist = smc_data.get("sl_distance", max(smc_data.get("atr_val", 0.001) * 1.5, 0.00060))
+        is_jpy = "JPY" in sym_upper
+        is_gold = "XAU" in sym_upper or "GOLD" in sym_upper
+        is_crypto = "BTC" in sym_upper
+        is_eth = "ETH" in sym_upper
+        if is_gold:
+            pip_unit = 0.10
+        elif is_crypto:
+            pip_unit = 1.00
+        elif is_eth:
+            pip_unit = 0.10
+        elif is_jpy:
+            pip_unit = 0.01
+        else:
+            pip_unit = 0.0001
+
+        min_headroom = max(sl_dist * 0.75, 2.5 * pip_unit)
+        vwap_upper_2 = adv_tech.get("vwap_upper_2")
+        vwap_lower_2 = adv_tech.get("vwap_lower_2")
+        nearest_res = smc_data.get("nearest_res")
+        nearest_sup = smc_data.get("nearest_sup")
+
+        # 1. EVALUASI HEADROOM UNTUK BUY (CEK ATAP RESISTANCE)
+        if bull_matches:
+            # Veto jika harga telah mencapai atau berada di atas batas VWAP +2σ (Statistical Premium Overextension)
+            if vwap_upper_2 is not None and c_close >= vwap_upper_2 - (0.5 * pip_unit):
+                logger.info(
+                    "🚫 [RESISTANCE PROXIMITY VETO] Sinyal BUY dibatalkan karena harga telah menyentuh/melampaui zona atap VWAP +2σ (Close: %.5f >= VWAP +2σ: %.5f).",
+                    c_close, vwap_upper_2
+                )
+                bull_matches = []
+            else:
+                overhead_res_candidates = []
+                if cur_bb_upper > c_close:
+                    overhead_res_candidates.append(("BB Upper", cur_bb_upper))
+                if vwap_upper_2 is not None and vwap_upper_2 > c_close:
+                    overhead_res_candidates.append(("VWAP +2σ", vwap_upper_2))
+                if nearest_res is not None and nearest_res > c_close:
+                    overhead_res_candidates.append(("SMC Resistance", nearest_res))
+
+                if overhead_res_candidates:
+                    res_name, res_lvl = min(overhead_res_candidates, key=lambda x: x[1])
+                    headroom = res_lvl - c_close
+                    if headroom < min_headroom:
+                        headroom_pips = headroom / pip_unit
+                        min_headroom_pips = min_headroom / pip_unit
+                        logger.info(
+                            "🚫 [RESISTANCE PROXIMITY VETO] Sinyal BUY dibatalkan karena jarak ke Resistance terdekat terlalu sempit (%s: %.5f, Headroom: %.1f pips < Minimal: %.1f pips).",
+                            res_name, res_lvl, headroom_pips, min_headroom_pips
+                        )
+                        bull_matches = []
+
+        # 2. EVALUASI HEADROOM UNTUK SELL (CEK LANTAI SUPPORT)
+        if bear_matches:
+            # Veto jika harga telah mencapai atau berada di bawah batas VWAP -2σ (Statistical Discount Overextension)
+            if vwap_lower_2 is not None and c_close <= vwap_lower_2 + (0.5 * pip_unit):
+                logger.info(
+                    "🚫 [SUPPORT PROXIMITY VETO] Sinyal SELL dibatalkan karena harga telah menyentuh/melampaui zona lantai VWAP -2σ (Close: %.5f <= VWAP -2σ: %.5f).",
+                    c_close, vwap_lower_2
+                )
+                bear_matches = []
+            else:
+                floor_sup_candidates = []
+                if cur_bb_lower < c_close:
+                    floor_sup_candidates.append(("BB Lower", cur_bb_lower))
+                if vwap_lower_2 is not None and vwap_lower_2 < c_close:
+                    floor_sup_candidates.append(("VWAP -2σ", vwap_lower_2))
+                if nearest_sup is not None and nearest_sup < c_close:
+                    floor_sup_candidates.append(("SMC Support", nearest_sup))
+
+                if floor_sup_candidates:
+                    sup_name, sup_lvl = max(floor_sup_candidates, key=lambda x: x[1])
+                    headroom = c_close - sup_lvl
+                    if headroom < min_headroom:
+                        headroom_pips = headroom / pip_unit
+                        min_headroom_pips = min_headroom / pip_unit
+                        logger.info(
+                            "🚫 [SUPPORT PROXIMITY VETO] Sinyal SELL dibatalkan karena jarak ke Support terdekat terlalu sempit (%s: %.5f, Headroom: %.1f pips < Minimal: %.1f pips).",
+                            sup_name, sup_lvl, headroom_pips, min_headroom_pips
+                        )
+                        bear_matches = []
+
         # SOP STEVE NISON: Pemicu Entri Fisik Wajib Berupa Pola Candlestick Murni atau Chart Pattern Terkonfirmasi
         PURE_CANDLESTICK_TRIGGERS_BULL = {
             "Hammer", "Inverted Hammer", "Bullish Engulfing", "Piercing Line",

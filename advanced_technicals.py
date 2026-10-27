@@ -119,6 +119,9 @@ class AdvancedTechnicalsEngine:
             "details": details,
             "summary": summary_text,
             "killzone_info": kz_res,
+            "vwap_upper_2": vwap_res.get("upper_2"),
+            "vwap_lower_2": vwap_res.get("lower_2"),
+            "vwap_val": vwap_res.get("vwap"),
         }
 
     # =========================================================================
