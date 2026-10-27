@@ -51,7 +51,8 @@
   * Jarak SL dan TP dihitung ulang berdasarkan harga riil eksekusi (`Ask` untuk BUY, `Bid` untuk SELL) dengan batas minimum SL terkunci sesuai kelas aset dan TP adaptif diizinkan pada rentang $\ge 1.25\times$ hingga $1.85\times$ SL (fallback default $1.5\times$).
 * **Filter Mutlak Institusional & Proteksi Modal:**
   * **Strict Max 1 Active Position per Symbol Guard:** Dilarang keras membuka order baru jika simbol tersebut masih memiliki posisi aktif/berjalan di terminal MT5 atau database. Menghilangkan bug cascading/duplicate orders (seperti 3 order beruntun di USDJPY).
-  * **Anti-Overextended (Anti-Pucuk & Lembah) Exhaustion Veto:** Dilarang keras BUY jika Stochastic > 78.0, RSI > 68.0, atau harga menembus Upper Bollinger Band (kecuali reversal terkonfirmasi). Dilarang keras SELL jika Stochastic < 22.0, RSI < 32.0, atau harga menembus Lower Bollinger Band.
+  * **Anti-Overextended (Anti-Pucuk & Lembah) Exhaustion Veto Mutlak:** Dilarang keras BUY jika Stochastic > 78.0, RSI > 68.0, atau harga menembus Upper Bollinger Band. Dilarang keras SELL jika Stochastic < 22.0, RSI < 32.0, atau harga menembus Lower Bollinger Band (Veto mutlak tanpa klausul pengecualian).
+  * **Anti-Divergence Collision Veto:** Dilarang keras SELL jika terdeteksi Bullish RSI Divergence (baik Regular maupun Hidden); dilarang keras BUY jika terdeteksi Bearish RSI Divergence.
   * **Ambang Batas Konfluensi:** Wajib minimal **2 Konfluensi Grade-A** (dengan kewajiban memuat minimal 1 pola candlestick valid + 1 konfluensi indikator/MTF) untuk memastikan efisiensi entry tanpa mengorbankan kualitas.
   * **Hard Veto MTF (Anti Counter-Trend):** Dilarang keras SELL jika MTF 15m Bullish di atas EMA 200, dilarang BUY jika MTF 15m Bearish di bawah EMA 200.
   * **Filter Jam Sesi Rawan Chop (*Session Filter*):** Dilarang membuka posisi baru pada jam likuiditas tipis & rawan false breakout: **11:30 – 13:00 WIB** (Jeda Siang Asia) dan **17:30 – 19:00 WIB** (London Lunch / Pre-NY).

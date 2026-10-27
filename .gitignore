@@ -36,6 +36,8 @@ orders_queue/failed/*
 !orders_queue/failed/.gitkeep
 orders_queue/outcomes/*
 !orders_queue/outcomes/.gitkeep
+orders_queue/live_positions.json
+orders_queue/temp_live_positions.json
 
 # OS & Editor generated files
 .DS_Store

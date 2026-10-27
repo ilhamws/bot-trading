@@ -1530,15 +1530,26 @@ class LiveMarketScanner:
             if cur_rsi > 65 or c_close >= cur_bb_upper:
                 bull_matches = []
 
-        # Anti-Overbought Exhaustion Veto: Dilarang BUY di pucuk jika Stochastic > 78 atau RSI > 68 atau harga menembus BB Upper
-        if (cur_stoch_k > 78.0 or cur_rsi > 68.0 or c_close >= cur_bb_upper) and not has_bull_reversal:
-            logger.info("🚫 [OVERBOUGHT VETO] Sinyal BUY dibatalkan karena pasar overextended di area pucuk (Stoch: %.1f, RSI: %.1f, BB Upper: %.4f).", cur_stoch_k, cur_rsi, cur_bb_upper)
+        # Anti-Overbought Exhaustion Hard Veto: Dilarang keras BUY di pucuk jika Stochastic > 78 atau RSI > 68 atau harga menembus BB Upper
+        if cur_stoch_k > 78.0 or cur_rsi > 68.0 or c_close >= cur_bb_upper:
+            logger.info("🚫 [OVERBOUGHT VETO] Sinyal BUY dibatalkan karena pasar overextended di area pucuk/jenuh beli (Stoch: %.1f, RSI: %.1f, BB Upper: %.4f).", cur_stoch_k, cur_rsi, cur_bb_upper)
             bull_matches = []
 
-        # Anti-Oversold Exhaustion Veto: Dilarang SELL di dasar jika Stochastic < 22 atau RSI < 32 atau harga menembus BB Lower
-        if (cur_stoch_k < 22.0 or cur_rsi < 32.0 or c_close <= cur_bb_lower) and not has_bear_reversal:
-            logger.info("🚫 [OVERSOLD VETO] Sinyal SELL dibatalkan karena pasar overextended di area lembah (Stoch: %.1f, RSI: %.1f, BB Lower: %.4f).", cur_stoch_k, cur_rsi, cur_bb_lower)
+        # Anti-Oversold Exhaustion Hard Veto: Dilarang keras SELL di dasar jika Stochastic < 22 atau RSI < 32 atau harga menembus BB Lower
+        if cur_stoch_k < 22.0 or cur_rsi < 32.0 or c_close <= cur_bb_lower:
+            logger.info("🚫 [OVERSOLD VETO] Sinyal SELL dibatalkan karena pasar overextended di area lembah/jenuh jual (Stoch: %.1f, RSI: %.1f, BB Lower: %.4f).", cur_stoch_k, cur_rsi, cur_bb_lower)
             bear_matches = []
+
+        # Anti-Divergence Collision Hard Veto: Dilarang keras bertransaksi melawan arah divergensi RSI aktif
+        has_bull_div = any("Bullish" in b and "Divergence" in b for b in adv_tech.get("bull_confluences", []))
+        if has_bull_div and bear_matches:
+            logger.info("🚫 [DIVERGENCE VETO] Sinyal SELL dibatalkan karena terdeteksi Bullish RSI Divergence (indikasi kuat dorongan/pantulan naik).")
+            bear_matches = []
+
+        has_bear_div = any("Bearish" in b and "Divergence" in b for b in adv_tech.get("bear_confluences", []))
+        if has_bear_div and bull_matches:
+            logger.info("🚫 [DIVERGENCE VETO] Sinyal BUY dibatalkan karena terdeteksi Bearish RSI Divergence (indikasi kuat tekanan/penurunan tajam).")
+            bull_matches = []
 
         # SOP STEVE NISON: Pemicu Entri Fisik Wajib Berupa Pola Candlestick Murni atau Chart Pattern Terkonfirmasi
         PURE_CANDLESTICK_TRIGGERS_BULL = {
