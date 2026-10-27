@@ -1499,6 +1499,16 @@ class LiveMarketScanner:
             if cur_rsi > 65 or c_close >= cur_bb_upper:
                 bull_matches = []
 
+        # Anti-Overbought Exhaustion Veto: Dilarang BUY di pucuk jika Stochastic > 78 atau RSI > 68 atau harga menembus BB Upper
+        if (cur_stoch_k > 78.0 or cur_rsi > 68.0 or c_close >= cur_bb_upper) and not has_bull_reversal:
+            logger.info("🚫 [OVERBOUGHT VETO] Sinyal BUY dibatalkan karena pasar overextended di area pucuk (Stoch: %.1f, RSI: %.1f, BB Upper: %.4f).", cur_stoch_k, cur_rsi, cur_bb_upper)
+            bull_matches = []
+
+        # Anti-Oversold Exhaustion Veto: Dilarang SELL di dasar jika Stochastic < 22 atau RSI < 32 atau harga menembus BB Lower
+        if (cur_stoch_k < 22.0 or cur_rsi < 32.0 or c_close <= cur_bb_lower) and not has_bear_reversal:
+            logger.info("🚫 [OVERSOLD VETO] Sinyal SELL dibatalkan karena pasar overextended di area lembah (Stoch: %.1f, RSI: %.1f, BB Lower: %.4f).", cur_stoch_k, cur_rsi, cur_bb_lower)
+            bear_matches = []
+
         has_bull_pattern = any(m not in NON_CANDLE_INDICATORS and not m.startswith("Post-News") for m in bull_matches)
         has_bear_pattern = any(m not in NON_CANDLE_INDICATORS and not m.startswith("Post-News") for m in bear_matches)
 
@@ -1695,7 +1705,12 @@ class LiveMarketScanner:
                                         "✅ *SOP lokal dan Guardrails optimasi Exit telah diperbarui otomatis!*"
                                     )
                                     await self.notifier.send_message(be_alert)
-                        # 0. Cooldown pasca Loss: Jika trade sebelumnya pada simbol ini terkena SL dalam 15 menit terakhir, jeda sejenak untuk mencegah overtrading
+                        # 0a. Proteksi Posisi Aktif: Dilarang membuka posisi baru jika simbol ini masih memiliki trade berjalan di MT5 (Max 1 Active Trade per Symbol)
+                        if signal_tracker.has_open_position(symbol):
+                            logger.info("🔒 [%s] %s | POSISI MASIH BERJALAN di MT5. Melewati scanning (Max 1 Active Trade per Symbol).", self.interval, symbol)
+                            continue
+
+                        # 0b. Cooldown pasca Loss: Jika trade sebelumnya pada simbol ini terkena SL dalam 15 menit terakhir, jeda sejenak untuk mencegah overtrading
                         is_cooldown, cooldown_reason = signal_tracker.is_loss_cooldown(symbol, cooldown_minutes=15)
                         if is_cooldown:
                             logger.info("⏳ [%s] %s | LOSS COOLDOWN AKTIF: %s. Melewati scanning demi proteksi modal.", self.interval, symbol, cooldown_reason)
@@ -1714,16 +1729,19 @@ class LiveMarketScanner:
 
                                 # Eksekusi order otomatis ke MetaTrader 5 (Auto-Entry)
                                 if self.auto_trade and decision.action in ("BUY", "SELL"):
-                                    order_res = mt5_executor.dispatch_signal_order(
-                                        decision=decision,
-                                        setup=setup,
-                                        lot_size=self.lot_size,
-                                    )
-                                    if order_res.get("success"):
-                                        logger.info(
-                                            "🚀 [MT5 AUTO-ORDER] Order %s didispatch ke antrean MT5 (Lot: %.2f)!",
-                                            decision.action, self.lot_size
+                                    if signal_tracker.has_open_position(symbol):
+                                        logger.warning("🔒 [DOUBLE ENTRY BLOCKED] Order %s %s dibatalkan karena posisi pada simbol ini masih aktif di MT5!", decision.action, symbol)
+                                    else:
+                                        order_res = mt5_executor.dispatch_signal_order(
+                                            decision=decision,
+                                            setup=setup,
+                                            lot_size=self.lot_size,
                                         )
+                                        if order_res.get("success"):
+                                            logger.info(
+                                                "🚀 [MT5 AUTO-ORDER] Order %s didispatch ke antrean MT5 (Lot: %.2f)!",
+                                                decision.action, self.lot_size
+                                            )
                         elif setup:
                             logger.info(
                                 "⏳ [%s] %s [Bar Selesai: %s] | Live Price: %.5f | RSI: %.1f | Tren: %s | MACD: %s | Status: %s | %s",

@@ -213,7 +213,16 @@ class SignalTracker:
                     if row:
                         s_id = row["id"]
                         entry_p = row["entry_price"]
-                        if exit_price <= 0:
+                        # Sanity check: pastikan exit_price sesuai dengan skala instrumen
+                        is_price_insane = False
+                        if "JPY" in sym and (exit_price < 50.0 or exit_price > 500.0):
+                            is_price_insane = True
+                        elif ("XAU" in sym or "GOLD" in sym) and (exit_price < 1000.0 or exit_price > 6000.0):
+                            is_price_insane = True
+                        elif not ("JPY" in sym or "XAU" in sym or "GOLD" in sym) and (exit_price > 10.0 or exit_price <= 0.0):
+                            is_price_insane = True
+
+                        if exit_price <= 0 or is_price_insane:
                             exit_price = row["take_profit"] if status == "WIN" else (entry_p if status == "BREAKEVEN" else row["stop_loss"])
                         pips = round((exit_price - entry_p) / pip_scale if action == "BUY" else (entry_p - exit_price) / pip_scale, 1)
 
@@ -740,24 +749,47 @@ TUGAS ANDA:
                 logger.error("Gagal melakukan AI Breakeven Reflection: %s", exc)
                 return None
 
+    def has_open_position(self, symbol: str) -> bool:
+        """Check if symbol currently has an active open position in MT5 or DB to prevent duplicate orders."""
+        sym = symbol.upper()
+        # 1. Cek antrean pending di disk (belum dieksekusi bridge)
+        pending_dir = Path(__file__).resolve().parent / "orders_queue" / "pending"
+        if pending_dir.exists():
+            for _ in pending_dir.glob(f"ORD_{sym}_*.json"):
+                return True
+
+        # 2. Cek database trading_signals untuk status OPEN
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT id FROM trading_signals
+                WHERE instrument = ? AND status = 'OPEN'
+                LIMIT 1
+            """, (sym,))
+            if cursor.fetchone():
+                return True
+
+        return False
+
     def is_loss_cooldown(self, symbol: str, cooldown_minutes: int = 15) -> Tuple[bool, Optional[str]]:
         """Check if symbol is in post-loss cooldown to prevent revenge trading or consecutive stop-outs."""
         sym = symbol.upper()
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                SELECT status, exit_time FROM trading_signals
-                WHERE instrument = ? AND status IN ('LOSS', 'WIN')
+                SELECT status, exit_time, pips_result FROM trading_signals
+                WHERE instrument = ? AND (status = 'LOSS' OR (status IN ('WIN', 'LOSS') AND pips_result < 0))
                 ORDER BY id DESC LIMIT 1
             """, (sym,))
             row = cursor.fetchone()
-            if row and row["status"] == "LOSS" and row["exit_time"]:
+            if row and row["exit_time"]:
                 try:
                     exit_dt = datetime.strptime(str(row["exit_time"]), "%Y-%m-%d %H:%M:%S")
                     diff_seconds = (datetime.now() - exit_dt).total_seconds()
                     if 0 <= diff_seconds < (cooldown_minutes * 60):
                         remaining_min = int((cooldown_minutes * 60 - diff_seconds) / 60) + 1
-                        return True, f"Trade sebelumnya menyentuh SL pada {row['exit_time']} (Cooldown sisa: {remaining_min} menit untuk stabilisasi pasar)"
+                        loss_pips_str = f" ({row['pips_result']} pips)" if row.get("pips_result") else ""
+                        return True, f"Trade sebelumnya rugi{loss_pips_str} pada {row['exit_time']} (Cooldown sisa: {remaining_min} menit untuk stabilisasi pasar)"
                 except Exception as err:
                     logger.debug("Cooldown time parse error: %s", err)
         return False, None

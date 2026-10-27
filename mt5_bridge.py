@@ -244,6 +244,34 @@ def resolve_symbol(raw_symbol: str, retries: int = 3) -> Optional[str]:
     return None
 
 
+def get_asset_min_sl_floor(symbol: str, curr_price: float = 0.0) -> float:
+    """Calculate asset-specific minimum Stop Loss floor to prevent premature stop-outs.
+    - XAUUSD / GOLD: min $3.50 (35.0 pips / 350 points)
+    - GBPJPY ("The Beast"): min 0.120 (12.0 pips)
+    - EURJPY & other JPY crosses: min 0.090 (9.0 pips)
+    - USDJPY: min 0.075 (7.5 pips)
+    - GBPUSD, EURGBP: min 0.00070 (7.0 pips)
+    - Major forex (EURUSD, AUDUSD, USDCAD, USDCHF, NZDUSD): min 0.00060 (6.0 pips)
+    - Crypto (BTC/ETH): min $250.0 / $15.0
+    """
+    sym = str(symbol or "").upper()
+    if "XAU" in sym or "GOLD" in sym or (curr_price >= 1500.0 and curr_price <= 5000.0):
+        return 3.50
+    if "GBPJPY" in sym:
+        return 0.120
+    if "JPY" in sym:
+        if "USDJPY" in sym:
+            return 0.075
+        return 0.090  # EURJPY, AUDJPY, CADJPY, etc.
+    if "GBP" in sym:
+        return 0.00070  # GBPUSD, EURGBP
+    if "BTC" in sym:
+        return 250.0
+    if "ETH" in sym:
+        return 15.0
+    return 0.00060  # Default majors
+
+
 def get_filling_type(symbol_info) -> int:
     """Determine the supported filling mode for the symbol."""
     filling_mode = getattr(symbol_info, "filling_mode", 0)
@@ -325,8 +353,8 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
             sl_dist = abs(raw_sl_f - planned_price)
             tp_dist = abs(raw_tp_f - planned_price)
 
-            # Batas minimal higienis SL (minimal 4.5 pips untuk mencegah premature hit akibat spread)
-            min_floor = 0.00045 if digits >= 4 else (0.45 if digits == 2 and "XAU" in symbol else 0.045)
+            # Batas minimal higienis SL berbasis aset (mencegah premature hit akibat spread & noise)
+            min_floor = get_asset_min_sl_floor(symbol, price)
             if sl_dist < min_floor:
                 sl_dist = min_floor
 
@@ -604,12 +632,14 @@ def check_closed_positions() -> None:
         if pos is None or len(pos) == 0:
             closed_tickets.append(ticket)
             
-            # Cari history deals 3 hari terakhir agar history selalu termuat
-            now_dt = datetime.now()
-            from_dt = now_dt - timedelta(days=3)
-            deals = mt5.history_deals_get(from_dt, now_dt, position=ticket)
+            # 1. Cari history deals untuk posisi unik ini
+            deals = mt5.history_deals_get(position=ticket)
             if not deals or len(deals) == 0:
-                deals = mt5.history_deals_get(position=ticket)
+                now_dt = datetime.now()
+                from_dt = now_dt - timedelta(days=3)
+                all_deals = mt5.history_deals_get(from_dt, now_dt + timedelta(days=1))
+                if all_deals:
+                    deals = [d for d in all_deals if getattr(d, "position_id", None) == ticket]
 
             exit_price = None
             profit = 0.0
@@ -634,29 +664,44 @@ def check_closed_positions() -> None:
             action = order_data.get("action", "")
             sl_val = float(order_data.get("sl") or 0.0)
             tp_val = float(order_data.get("tp") or 0.0)
+            open_p = float(order_data.get("price") or order_data.get("open_price") or 0.0)
 
             # Fallback jika deal history MT5 belum sinkron
             if exit_price is None:
                 info = mt5.symbol_info_tick(sym)
                 cur_price = info.bid if action == "BUY" else info.ask if info else 0.0
                 if action == "BUY":
-                    if sl_val > 0 and cur_price <= sl_val:
+                    if sl_val > 0 and (cur_price <= sl_val or (open_p > 0 and cur_price < open_p)):
                         exit_price = sl_val
                         reason_str = "🛑 STOP LOSS TERSENTUH"
-                        profit = -abs(exit_price - float(order_data.get("price", exit_price))) * 100000 * float(order_data.get("lot", 0.01))
+                        profit = -abs(exit_price - open_p) * 100000 * float(order_data.get("lot", 0.01))
+                    elif tp_val > 0 and cur_price >= tp_val:
+                        exit_price = tp_val
+                        reason_str = "🎯 TAKE PROFIT TERCAPAI"
+                        profit = abs(exit_price - open_p) * 100000 * float(order_data.get("lot", 0.01))
                     else:
-                        exit_price = tp_val if tp_val > 0 else cur_price
-                else:
-                    if sl_val > 0 and cur_price >= sl_val:
                         exit_price = sl_val
                         reason_str = "🛑 STOP LOSS TERSENTUH"
-                        profit = -abs(exit_price - float(order_data.get("price", exit_price))) * 100000 * float(order_data.get("lot", 0.01))
+                        profit = -abs(exit_price - open_p) * 100000 * float(order_data.get("lot", 0.01))
+                else:  # SELL
+                    if sl_val > 0 and (cur_price >= sl_val or (open_p > 0 and cur_price > open_p)):
+                        exit_price = sl_val
+                        reason_str = "🛑 STOP LOSS TERSENTUH"
+                        profit = -abs(exit_price - open_p) * 100000 * float(order_data.get("lot", 0.01))
+                    elif tp_val > 0 and cur_price <= tp_val:
+                        exit_price = tp_val
+                        reason_str = "🎯 TAKE PROFIT TERCAPAI"
+                        profit = abs(exit_price - open_p) * 100000 * float(order_data.get("lot", 0.01))
                     else:
-                        exit_price = tp_val if tp_val > 0 else cur_price
+                        exit_price = sl_val
+                        reason_str = "🛑 STOP LOSS TERSENTUH"
+                        profit = -abs(exit_price - open_p) * 100000 * float(order_data.get("lot", 0.01))
 
-            if profit >= 0 and "STOP LOSS" in reason_str:
+            if profit > 0 and "STOP LOSS" not in reason_str:
+                status_word = "WIN"
+            elif profit >= 0 and "STOP LOSS" in reason_str:
                 pip_scale = 0.01 if "JPY" in sym else (0.10 if "XAU" in sym or "GOLD" in sym else 0.0001)
-                planned_price = float(order_data.get("price") or exit_price or 0.0)
+                planned_price = float(order_data.get("price") or open_p or exit_price or 0.0)
                 pips_gain = round(abs(exit_price - planned_price) / pip_scale, 1) if (exit_price and planned_price) else 0.5
                 if pips_gain >= 2.0:
                     reason_str = f"💰 TRAILING PROFIT LOCK TERSENTUH (+{pips_gain:.1f} pips)"
@@ -665,15 +710,7 @@ def check_closed_positions() -> None:
                     reason_str = "🛡️ BREAKEVEN TERSENTUH (+PROFIT)"
                     status_word = "BREAKEVEN"
             else:
-                is_sl_hit = (
-                    reason_str == "🛑 STOP LOSS TERSENTUH" or
-                    profit < 0 or
-                    (exit_price and sl_val > 0 and (
-                        (action == "BUY" and exit_price <= sl_val + 0.00005) or
-                        (action == "SELL" and exit_price >= sl_val - 0.00005)
-                    ))
-                )
-                status_word = "LOSS" if is_sl_hit else "WIN"
+                status_word = "LOSS"
 
             logger.info("=" * 60)
             logger.info("📢 POSISI TIKET #%d TELAH SELESAI DI MT5!", ticket)

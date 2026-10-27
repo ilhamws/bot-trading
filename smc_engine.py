@@ -34,6 +34,34 @@ def calculate_atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
     return atr
 
 
+def get_asset_min_sl_floor(symbol: str, curr_price: float = 0.0) -> float:
+    """Calculate asset-specific minimum Stop Loss floor to prevent premature stop-outs.
+    - XAUUSD / GOLD: min $3.50 (35.0 pips / 350 points)
+    - GBPJPY ("The Beast"): min 0.120 (12.0 pips)
+    - EURJPY & other JPY crosses: min 0.090 (9.0 pips)
+    - USDJPY: min 0.075 (7.5 pips)
+    - GBPUSD, EURGBP: min 0.00070 (7.0 pips)
+    - Major forex (EURUSD, AUDUSD, USDCAD, USDCHF, NZDUSD): min 0.00060 (6.0 pips)
+    - Crypto (BTC/ETH): min $250.0 / $15.0
+    """
+    sym = str(symbol or "").upper()
+    if "XAU" in sym or "GOLD" in sym or (curr_price >= 1500.0 and curr_price <= 5000.0):
+        return 3.50
+    if "GBPJPY" in sym:
+        return 0.120
+    if "JPY" in sym:
+        if "USDJPY" in sym:
+            return 0.075
+        return 0.090  # EURJPY, AUDJPY, CADJPY, etc.
+    if "GBP" in sym:
+        return 0.00070  # GBPUSD, EURGBP
+    if "BTC" in sym:
+        return 250.0
+    if "ETH" in sym:
+        return 15.0
+    return 0.00060  # Default majors (EURUSD, USDCAD, AUDUSD, NZDUSD, USDCHF)
+
+
 class SMCEngine:
     """Quantitative SMC detector integrating ICT institutional mechanics."""
 
@@ -331,8 +359,8 @@ class SMCEngine:
             except Exception as e:
                 smc_details.append(f"SMC calculation notice: {e}")
 
-        # 3. Dynamic ATR & Adaptive S/R Target Calculations (Floor min 4.5 pips / 1.5x ATR)
-        min_sl_floor = 0.00045 if not (is_jpy or is_gold or is_crypto) else (0.45 if is_gold else 0.045)
+        # 3. Dynamic ATR & Adaptive S/R Target Calculations (Asset-Specific Minimum SL Floor)
+        min_sl_floor = get_asset_min_sl_floor(symbol, curr_price)
         sl_distance = max(atr_val * 1.5, min_sl_floor)
         default_tp_dist = round(sl_distance * 1.5, 5)
         buffer = 1.0 * pip_unit  # 1.0 pip front-running buffer

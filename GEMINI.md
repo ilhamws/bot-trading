@@ -29,10 +29,18 @@
 ---
 
 ## 3. Parameter Risiko, SL, TP, dan Rasio (R:R)
-* **Jarak Stop Loss (SL):** **$1.5\times$ nilai ATR(14)** dari harga entry dengan batas lantai minimal (**floor min 4.5 pips**).
-  * Formula: `SL Distance = max(ATR * 1.5, 0.00045)` (mencegah SL tersambar premature oleh spread/noise broker).
+* **Jarak Stop Loss (SL) Adaptif Berbasis Volatilitas Aset:**
+  * **Formula:** `SL Distance = max(ATR * 1.5, get_asset_min_sl_floor(symbol, price))`
+  * **Lantai Minimum SL Per Kelas Aset (Anti-Suffocation Stop Loss):**
+    * **XAUUSD (Gold):** Minimal $3.50 (35.0 pips / 350 points) untuk meredam ayunan spread emas broker.
+    * **GBPJPY ("The Beast"):** Minimal 12.0 pips (0.120 yen) mengingat volatilitas ekstrem dan spread 1.5-2.5 pips.
+    * **EURJPY & Cross JPY Lainnya:** Minimal 9.0 pips (0.090 yen).
+    * **USDJPY:** Minimal 7.5 pips (0.075 yen).
+    * **GBPUSD & EURGBP:** Minimal 7.0 pips (0.00070).
+    * **Forex Majors (EURUSD, AUDUSD, USDCAD, USDCHF, NZDUSD):** Minimal 6.0 pips (0.00060).
+    * **Kripto (BTC/ETH):** Minimal $250.0 / $15.0.
 * **Jarak Take Profit (TP) & Algoritma Adaptif S/R:**
-  * **Target Default:** $1.5\times$ dari jarak SL (Rasio Risk to Reward **1 : 1.5**, minimal 6.8 pips).
+  * **Target Default:** $1.5\times$ dari jarak SL (Rasio Risk to Reward **1 : 1.5**).
   * **Algoritma Geser Resistance/Support Terdekat (`smc_engine.py`):**
     * Sebelum mengunci TP, bot memindai Resistance (BUY) atau Support (SELL) terdekat dari Swing High/Low fraktal, FVG, Order Block, serta **Level Kunci Manual (`manual_levels.json`)**.
     * **Level Kunci Manual Terdaftar (EURUSD):** `1.12685` (Resistance Mayor), `1.12608` (Resistance Minor/Flip), `1.12488` (Support Kunci RBS), `1.12406` (Support Mayor/Base Demand).
@@ -40,8 +48,10 @@
     * **Level Terlalu Dekat ($< 1.25\times$ SL):** Tetap entry dengan **mengunci TP default di $1.5\times$ SL** (mengantisipasi breakout tanpa memotong R:R).
     * **Level Jauh ($> 1.85\times$ SL) / Tidak Ada Level:** Tetap mengunci TP default di **$1.5\times$ SL**.
 * **Anti-Slippage Dynamic Anchoring (`mt5_bridge.py`):**
-  * Jarak SL dan TP dihitung ulang berdasarkan harga riil eksekusi (`Ask` untuk BUY, `Bid` untuk SELL) dengan batas minimum SL terkunci $\ge 4.5$ pips dan TP adaptif diizinkan pada rentang $\ge 1.25\times$ hingga $1.85\times$ SL (fallback default $1.5\times$).
+  * Jarak SL dan TP dihitung ulang berdasarkan harga riil eksekusi (`Ask` untuk BUY, `Bid` untuk SELL) dengan batas minimum SL terkunci sesuai kelas aset dan TP adaptif diizinkan pada rentang $\ge 1.25\times$ hingga $1.85\times$ SL (fallback default $1.5\times$).
 * **Filter Mutlak Institusional & Proteksi Modal:**
+  * **Strict Max 1 Active Position per Symbol Guard:** Dilarang keras membuka order baru jika simbol tersebut masih memiliki posisi aktif/berjalan di terminal MT5 atau database. Menghilangkan bug cascading/duplicate orders (seperti 3 order beruntun di USDJPY).
+  * **Anti-Overextended (Anti-Pucuk & Lembah) Exhaustion Veto:** Dilarang keras BUY jika Stochastic > 78.0, RSI > 68.0, atau harga menembus Upper Bollinger Band (kecuali reversal terkonfirmasi). Dilarang keras SELL jika Stochastic < 22.0, RSI < 32.0, atau harga menembus Lower Bollinger Band.
   * **Ambang Batas Konfluensi:** Wajib minimal **2 Konfluensi Grade-A** (dengan kewajiban memuat minimal 1 pola candlestick valid + 1 konfluensi indikator/MTF) untuk memastikan efisiensi entry tanpa mengorbankan kualitas.
   * **Hard Veto MTF (Anti Counter-Trend):** Dilarang keras SELL jika MTF 15m Bullish di atas EMA 200, dilarang BUY jika MTF 15m Bearish di bawah EMA 200.
   * **Filter Jam Sesi Rawan Chop (*Session Filter*):** Dilarang membuka posisi baru pada jam likuiditas tipis & rawan false breakout: **11:30 – 13:00 WIB** (Jeda Siang Asia) dan **17:30 – 19:00 WIB** (London Lunch / Pre-NY).
@@ -53,7 +63,7 @@
   * **Micro-Trend EMA Alignment Veto:** Dilarang SELL jika harga penutupan berada di atas EMA 20 dan EMA 20 sedang menanjak naik; dilarang BUY jika harga di bawah EMA 20 dan EMA 20 menukik turun.
   * **Anti-Steep EMA Slope Veto:** Dilarang BUY jika EMA-20 & EMA-50 menukik tajam ke bawah; dilarang SELL jika EMA-20 & EMA-50 menanjak tajam ke atas.
   * **Anti-Falling Knife:** Dilarang BUY saat MACD Death Cross tajam & candle penutupan merah; dilarang BUY jika RSI $< 22$ tanpa wick rejection $\ge 40\%$.
-  * **Post-Loss Cooldown:** Wajib jeda **15 menit (3 bar candle)** pasca trade loss sebelum membuka order baru di simbol yang sama.
+  * **Post-Loss Cooldown Real Enforcement:** Wajib jeda **15 menit (3 bar candle)** pasca trade loss/SL sebelum membuka order baru di simbol yang sama.
 
 ---
 
@@ -119,10 +129,17 @@
 ---
 
 ## 6. Riwayat Tiket & Status Terkini
-* **Tiket Eksekusi Terakhir:** Tiket `#152811995297` (BUY USDJPY 0.01 lot @ 157.129, Exit 157.134, Status: WIN +0.5 pip via Breakeven) & `#152811924451` (BUY USDJPY 0.01 lot @ 157.101, Exit 157.106, Status: WIN +0.5 pip via Breakeven).
-* **Tiket Loss Riil Terakhir:** Tiket `#152811747254` (BUY EURUSD 0.01 lot @ 1.12186, Exit 1.12141, Status: LOSS -4.5 pips).
-* **Refleksi Tersimpan:** Refleksi ID #1 s/d #13 aktif di ChromaDB & SQLite (termasuk pantangan mutlak BUY saat Stochastic Overbought > 80 & menabrak BB Upper di 5m).
-* **Fitur Terkini:** Multi-simbol scanning live feed (`EURUSD`, `GBPUSD`, `USDJPY`, `XAUUSD`), Native MT5 Position Watcher & Dynamic Breakeven, pemisahan klasifikasi Breakeven SL (`profit >= 0` $\rightarrow$ WIN / no false reflection) di `mt5_bridge.py`.
+* **Hasil Investigasi Audit 6 Loss (27 Okt 2026):**
+  * Sinyal #61 (XAUUSD SELL): Terkena SL akibat lonjakan momentum bullish emas.
+  * Sinyal #63 (GBPUSD SELL): Terkena SL karena jarak floor lama (4.5 pips) terlalu tipis tersenggol noise pre-London.
+  * Sinyal #67, #69, #70 (USDJPY BUY): Terkena SL beruntun akibat bug ketiadaan proteksi Max 1 Active Trade per Symbol (membuka 3 order sekaligus di pucuk 157.69).
+  * Sinyal #71 (EURJPY BUY) & #66/#72 (GBPJPY BUY): Terkena SL akibat floor SL JPY yang terlalu sempit tersenggol retest normal.
+* **Tindakan Perbaikan yang Telah Diterapkan:**
+  1. `Strict Max 1 Active Position per Symbol` diterapkan di scanner & bridge.
+  2. `Asset-Specific SL Floor` diterapkan (Gold min $3.50, GBPJPY min 12.0 pips, EURJPY min 9.0 pips, USDJPY min 7.5 pips, GBPUSD/EURGBP min 7.0 pips, Majors min 6.0 pips).
+  3. `Anti-Overextended (Anti-Pucuk/Lembah) Veto` aktif (Stoch > 78 / RSI > 68 / Upper BB untuk BUY; Stoch < 22 / RSI < 32 / Lower BB untuk SELL).
+  4. Perbaikan pelaporan status deal MT5 di `mt5_bridge.py` dan `signal_tracker.py` agar status LOSS tercatat 100% akurat.
+* **Refleksi Tersimpan:** Refleksi ID #1 s/d #14 aktif di ChromaDB & SQLite.
 
 ---
 
