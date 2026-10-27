@@ -16,13 +16,19 @@ CURRENCY_CLUSTERS: Dict[str, Set[str]] = {
         "EURUSD", "GBPUSD", "EURGBP"
     },
     "COMMODITY_FX": {
-        "USDCAD", "AUDUSD", "NZDUSD"
+        "USDCAD", "AUDUSD", "NZDUSD", "AUDCAD"
+    },
+    "EUR_CROSSES": {
+        "EURCAD", "EURAUD", "EURCHF"
+    },
+    "GBP_CROSSES": {
+        "GBPCAD", "GBPAUD"
     },
     "GOLD_METALS": {
         "XAUUSD", "GOLD", "XAGUSD", "SILVER"
     },
     "CHF_CLUSTER": {
-        "USDCHF", "EURCHF", "GBPCHF"
+        "USDCHF"
     }
 }
 
