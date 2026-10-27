@@ -98,11 +98,16 @@
 * **Engulfing & Pullback Calibration:**
   * Rasio body Engulfing diatur $\ge 1.05\times$ body candle lawan (menghilangkan dead zone).
   * Konteks RSI untuk pola reversal / retest: Bearish diizinkan pada RSI $\ge 42.0$ (pullback dalam tren turun) dan Bullish pada RSI $\le 55.0$ (pullback dalam tren naik).
-* **4 Teknik Institusional Sinergis Tambahan:**
-  * **Dynamic EMA 20/50 Pullback:** Menangkap kelanjutan tren saat harga menguji zona nilai antara EMA 20 dan 50 dengan konfirmasi sumbu penolakan ($\ge 20\%$) searah tren MTF 15m.
-  * **Role Reversal Struktur Klasik (RBS & SBR):** Menangkap entri *break-and-retest* pada level Swing High/Low horizontal sebelumnya yang berhasil ditembus.
-  * **Institutional VWAP & Standard Deviation Bands ($\pm 2\sigma$):** Menangkap pembalikan *mean reversion* di sesi konsolidasi (Asia) saat menyentuh pita $\pm 2\sigma$, serta pantulan kelanjutan tren di garis tengah VWAP pada sesi London/NY.
-  * **Breaker Block (SMC Lanjutan):** Menangkap pembalikan tajam dari Order Block yang gagal/ditembus (*failed auction*) dan beralih peran menjadi zona support/resistance baru.
+* **4 Teknik Institusional Sebagai Area Nilai (Bukan Pemicu Entri Mandiri):**
+  * **Dynamic EMA 20/50 Pullback, Role Reversal RBS & SBR, Institutional VWAP Bands, dan Breaker Block** difungsikan murni sebagai **Zona Lokasi Nilai (Where)**.
+  * **Kewajiban Mutlak Candlestick Reversal (Steve Nison SOP):** Dilarang keras membuka posisi HANYA karena harga menyentuh garis EMA atau level SBR/RBS. Entri WAJIB dipicu oleh formasi candlestick rejection fisik (Hammer, Shooting Star, Engulfing body $\ge 1.1\times$, Tweezer, Three Soldiers/Crows). Tanpa pola candlestick terkonfirmasi, sinyal otomatis dibatalkan!
+* **Correlation Shield (Perisai Korelasi Mata Uang):**
+  * Maksimal **1 posisi aktif per keluarga mata uang** di seluruh terminal MT5 (`currency_clusters.py`):
+    * **JPY Cluster:** `USDJPY`, `GBPJPY`, `EURJPY`, `AUDJPY`, `CADJPY`, `CHFJPY`.
+    * **EUR/GBP Majors Cluster:** `EURUSD`, `GBPUSD`, `EURGBP`.
+    * **Commodity FX Cluster:** `USDCAD`, `AUDUSD`, `NZDUSD`.
+    * **Gold / Logam Mulia:** `XAUUSD`, `GOLD`.
+  * Membatalkan order baru pada kluster yang sama jika sudah ada transaksi berjalan, mencegah *cluster risk* dan kerugian serentak.
 
 ---
 

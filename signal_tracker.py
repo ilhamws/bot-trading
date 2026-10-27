@@ -9,7 +9,7 @@ import sqlite3
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional, Tuple, Set
 import re
 
 from config import settings, logger
@@ -748,6 +748,38 @@ TUGAS ANDA:
             except Exception as exc:
                 logger.error("Gagal melakukan AI Breakeven Reflection: %s", exc)
                 return None
+
+    def get_all_active_symbols(self) -> List[str]:
+        """Retrieve all currently active symbols across disk pending queue and database OPEN signals."""
+        active_syms: Set[str] = set()
+
+        # 1. Cek antrean pending di disk
+        pending_dir = Path(__file__).resolve().parent / "orders_queue" / "pending"
+        if pending_dir.exists():
+            for f in pending_dir.glob("ORD_*.json"):
+                # Ekstrak simbol dari nama file ORD_EURUSD_...
+                parts = f.stem.split("_")
+                if len(parts) >= 2:
+                    active_syms.add(parts[1].upper())
+
+        # 2. Cek database trading_signals untuk status OPEN
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT instrument FROM trading_signals WHERE status = 'OPEN'")
+            for row in cursor.fetchall():
+                active_syms.add(row["instrument"].upper())
+
+        return list(active_syms)
+
+    def has_cluster_conflict(self, symbol: str) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Check if symbol conflicts with any open position within the same currency cluster (Correlation Shield).
+        
+        Returns:
+            (is_blocked, cluster_name, conflicting_active_symbol)
+        """
+        from currency_clusters import get_cluster_conflicts
+        active_symbols = self.get_all_active_symbols()
+        return get_cluster_conflicts(symbol, active_symbols)
 
     def has_open_position(self, symbol: str) -> bool:
         """Check if symbol currently has an active open position in MT5 or DB to prevent duplicate orders."""

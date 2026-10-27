@@ -1298,6 +1298,28 @@ class LiveMarketScanner:
             "Bollinger Volatility Squeeze Breakdown (Bearish Expansion)",
             "Ascending Triangle Pressure (Bullish Breakout Setup)",
             "Descending Triangle Pressure (Bearish Breakdown Setup)",
+            # 4 Teknik Institusional Sebagai Area Nilai / Lokasi (Bukan Pemicu Entri Mandiri):
+            "Bullish Dynamic EMA Pullback (EMA 20/50 Trend Bounce)",
+            "Bearish Dynamic EMA Pullback (EMA 20/50 Trend Bounce)",
+            "Role Reversal RBS (Resistance Became Support Retest)",
+            "Role Reversal SBR (Support Became Resistance Retest)",
+            "Institutional VWAP Baseline Trend Bounce (Bullish)",
+            "Institutional VWAP Baseline Trend Bounce (Bearish)",
+            "Institutional VWAP -2σ Mean Reversion (Oversold Bounce)",
+            "Institutional VWAP +2σ Mean Reversion (Overbought Rejection)",
+            "Bullish Breaker Block Retest (Failed Supply Flip)",
+            "Bearish Breaker Block Retest (Failed Demand Flip)",
+            # Struktur SMC / Likuiditas (Konteks Lokasi):
+            "Bullish FVG Retest (Unmitigated)",
+            "Bearish FVG Retest (Unmitigated)",
+            "Institutional Bullish Order Block",
+            "Institutional Bearish Order Block",
+            "Bullish CHoCH (Structure Shift)",
+            "Bearish CHoCH (Structure Shift)",
+            "Bullish BOS (Trend Expansion)",
+            "Bearish BOS (Trend Expansion)",
+            "Sell-side Liquidity Sweep (SSL)",
+            "Buy-side Liquidity Sweep (BSL)",
         }
         # Pola Candlestick & SMC Pembalikan Bullish (Reversal BUY)
         BULLISH_REVERSAL_PATTERNS = {
@@ -1509,15 +1531,38 @@ class LiveMarketScanner:
             logger.info("🚫 [OVERSOLD VETO] Sinyal SELL dibatalkan karena pasar overextended di area lembah (Stoch: %.1f, RSI: %.1f, BB Lower: %.4f).", cur_stoch_k, cur_rsi, cur_bb_lower)
             bear_matches = []
 
-        has_bull_pattern = any(m not in NON_CANDLE_INDICATORS and not m.startswith("Post-News") for m in bull_matches)
-        has_bear_pattern = any(m not in NON_CANDLE_INDICATORS and not m.startswith("Post-News") for m in bear_matches)
+        # SOP STEVE NISON: Pemicu Entri Fisik Wajib Berupa Pola Candlestick Murni atau Chart Pattern Terkonfirmasi
+        PURE_CANDLESTICK_TRIGGERS_BULL = {
+            "Hammer", "Inverted Hammer", "Bullish Engulfing", "Piercing Line",
+            "Tweezer Bottom", "Morning Star", "Three White Soldiers",
+            "Bullish Kicker", "Three Inside Up", "Bullish Harami",
+            "Bullish Abandoned Baby", "Rising Three Methods",
+            "Double Bottom (W-Pattern)", "Inverse Head and Shoulders Reversal",
+            "Bull Flag Breakout (High-Probability Continuation)"
+        }
+        PURE_CANDLESTICK_TRIGGERS_BEAR = {
+            "Shooting Star", "Hanging Man", "Bearish Engulfing", "Dark Cloud Cover",
+            "Tweezer Top", "Evening Star", "Three Black Crows",
+            "Bearish Kicker", "Three Inside Down", "Bearish Harami",
+            "Bearish Abandoned Baby", "Falling Three Methods",
+            "Double Top (M-Pattern)", "Head and Shoulders Reversal",
+            "Bear Flag Breakdown (High-Probability Continuation)"
+        }
 
-        # Ambang Batas Kualitas: Wajib Minimal 2 Konfluensi Grade-A (dengan Wajib Memuat Pola Candlestick Valid)
+        has_pure_bull_candle = any(m in PURE_CANDLESTICK_TRIGGERS_BULL for m in bull_matches)
+        has_pure_bear_candle = any(m in PURE_CANDLESTICK_TRIGGERS_BEAR for m in bear_matches)
+
+        # Ambang Batas Kualitas: Wajib Minimal 2 Konfluensi Grade-A DENGAN KEWAJIBAN MUTLAK MEMUAT POLA CANDLESTICK FISIK
         pattern_name = None
-        if len(bull_matches) >= 2 and has_bull_pattern:
+        if len(bull_matches) >= 2 and has_pure_bull_candle:
             pattern_name = f"BUY ({len(bull_matches)} Konfluensi: {', '.join(bull_matches)})"
-        elif len(bear_matches) >= 2 and has_bear_pattern:
+        elif len(bear_matches) >= 2 and has_pure_bear_candle:
             pattern_name = f"SELL ({len(bear_matches)} Konfluensi: {', '.join(bear_matches)})"
+        else:
+            if len(bull_matches) >= 2 and not has_pure_bull_candle:
+                logger.debug("⏳ [%s] %s | Area Nilai Bullish (%d konfluensi) terdeteksi, namun DITOLAK karena belum ada konfirmasi candlestick reversal Steve Nison.", self.interval, symbol, len(bull_matches))
+            elif len(bear_matches) >= 2 and not has_pure_bear_candle:
+                logger.debug("⏳ [%s] %s | Area Nilai Bearish (%d konfluensi) terdeteksi, namun DITOLAK karena belum ada konfirmasi candlestick reversal Steve Nison.", self.interval, symbol, len(bear_matches))
 
         rsi_status = "RSI Oversold" if cur_rsi < 30 else ("RSI Overbought" if cur_rsi > 70 else "RSI Netral")
         bb_status = f"BB Upper: {cur_bb_upper:.4f}, BB Lower: {cur_bb_lower:.4f}"
@@ -1705,9 +1750,11 @@ class LiveMarketScanner:
                                         "✅ *SOP lokal dan Guardrails optimasi Exit telah diperbarui otomatis!*"
                                     )
                                     await self.notifier.send_message(be_alert)
-                        # 0a. Proteksi Posisi Aktif: Dilarang membuka posisi baru jika simbol ini masih memiliki trade berjalan di MT5 (Max 1 Active Trade per Symbol)
-                        if signal_tracker.has_open_position(symbol):
-                            logger.info("🔒 [%s] %s | POSISI MASIH BERJALAN di MT5. Melewati scanning (Max 1 Active Trade per Symbol).", self.interval, symbol)
+                        # 0a. Proteksi Posisi Aktif & Correlation Shield:
+                        # Dilarang membuka posisi baru jika simbol ini atau kluster mata uang ini masih memiliki trade berjalan
+                        is_cluster_blocked, c_name, conf_sym = signal_tracker.has_cluster_conflict(symbol)
+                        if is_cluster_blocked:
+                            logger.info("🛡️ [%s] %s | CORRELATION SHIELD: Kluster '%s' sudah memiliki posisi berjalan (%s). Melewati scanning.", self.interval, symbol, c_name, conf_sym)
                             continue
 
                         # 0b. Cooldown pasca Loss: Jika trade sebelumnya pada simbol ini terkena SL dalam 15 menit terakhir, jeda sejenak untuk mencegah overtrading
@@ -1729,8 +1776,9 @@ class LiveMarketScanner:
 
                                 # Eksekusi order otomatis ke MetaTrader 5 (Auto-Entry)
                                 if self.auto_trade and decision.action in ("BUY", "SELL"):
-                                    if signal_tracker.has_open_position(symbol):
-                                        logger.warning("🔒 [DOUBLE ENTRY BLOCKED] Order %s %s dibatalkan karena posisi pada simbol ini masih aktif di MT5!", decision.action, symbol)
+                                    is_cluster_blocked, c_name, conf_sym = signal_tracker.has_cluster_conflict(symbol)
+                                    if is_cluster_blocked:
+                                        logger.warning("🛡️ [CORRELATION SHIELD VETO] Order %s %s dibatalkan karena kluster '%s' sudah memiliki trade aktif (%s)!", decision.action, symbol, c_name, conf_sym)
                                     else:
                                         order_res = mt5_executor.dispatch_signal_order(
                                             decision=decision,
