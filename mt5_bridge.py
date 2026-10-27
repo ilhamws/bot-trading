@@ -53,6 +53,8 @@ PENDING_DIR = BASE_DIR / "orders_queue" / "pending"
 EXECUTED_DIR = BASE_DIR / "orders_queue" / "executed"
 FAILED_DIR = BASE_DIR / "orders_queue" / "failed"
 OUTCOMES_DIR = BASE_DIR / "orders_queue" / "outcomes"
+QUEUE_DIR = BASE_DIR / "orders_queue"
+LIVE_POSITIONS_FILE = QUEUE_DIR / "live_positions.json"
 
 PENDING_DIR.mkdir(parents=True, exist_ok=True)
 EXECUTED_DIR.mkdir(parents=True, exist_ok=True)
@@ -61,6 +63,39 @@ OUTCOMES_DIR.mkdir(parents=True, exist_ok=True)
 
 # Active position tracking dictionary {ticket: order_data}
 active_positions: Dict[int, Dict[str, Any]] = {}
+
+
+def sync_live_mt5_positions_file() -> None:
+    """Sync real-time active positions from MT5 terminal into orders_queue/live_positions.json for WSL scanner."""
+    try:
+        positions = mt5.positions_get()
+        pos_list = []
+        if positions:
+            for p in positions:
+                pos_list.append({
+                    "ticket": int(p.ticket),
+                    "symbol": str(p.symbol),
+                    "action": "BUY" if p.type == mt5.ORDER_TYPE_BUY else "SELL",
+                    "volume": float(p.volume),
+                    "price_open": float(p.price_open),
+                    "sl": float(p.sl),
+                    "tp": float(p.tp),
+                    "profit": float(p.profit),
+                    "time": int(p.time)
+                })
+
+        payload = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "count": len(pos_list),
+            "positions": pos_list
+        }
+
+        temp_file = QUEUE_DIR / "temp_live_positions.json"
+        with open(temp_file, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+        temp_file.replace(LIVE_POSITIONS_FILE)
+    except Exception as e:
+        logger.debug("Error syncing live positions file: %s", e)
 
 # Load configuration from .env if available
 TELEGRAM_BOT_TOKEN = None
@@ -637,6 +672,7 @@ def load_active_positions(close_if_breached: bool = False) -> None:
             pass
     # Periksa dan pasang SL/TP darurat jika ada posisi aktif tanpa proteksi
     fix_unprotected_positions(close_if_breached=close_if_breached)
+    sync_live_mt5_positions_file()
 
 
 def fix_unprotected_positions(close_if_breached: bool = False) -> None:
@@ -991,7 +1027,10 @@ def process_queue() -> None:
     
     while True:
         try:
-            # 0. Periksa & pasang SL/TP darurat otomatis jika ada posisi yang terbuka tanpa proteksi
+            # 0. Sinkronisasi Ground Truth posisi aktif MT5 ke live_positions.json untuk WSL Scanner
+            sync_live_mt5_positions_file()
+
+            # 0b. Periksa & pasang SL/TP darurat otomatis jika ada posisi yang terbuka tanpa proteksi
             fix_unprotected_positions()
 
             # 1. Periksa posisi yang ditutup oleh SL / TP di MT5

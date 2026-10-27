@@ -1780,25 +1780,27 @@ class LiveMarketScanner:
                                 logger.info("Keputusan AI adalah WAIT (Setup belum memenuhi SOP). Pesan Telegram disaring (hanya mengirim BUY/SELL).")
                             else:
                                 await self.notifier.send_signal_decision(decision)
-                                # Catat sinyal ke dalam database untuk dilacak hasilnya (Outcome Tracker)
-                                signal_tracker.record_signal(decision, setup)
 
-                                # Eksekusi order otomatis ke MetaTrader 5 (Auto-Entry)
+                                # 1. Eksekusi order otomatis ke MetaTrader 5 (Auto-Entry LANGSUNG ke Antrean MT5)
+                                order_ticket = None
                                 if self.auto_trade and decision.action in ("BUY", "SELL"):
-                                    is_cluster_blocked, c_name, conf_sym = signal_tracker.has_cluster_conflict(symbol)
-                                    if is_cluster_blocked:
-                                        logger.warning("🛡️ [CORRELATION SHIELD VETO] Order %s %s dibatalkan karena kluster '%s' sudah memiliki trade aktif (%s)!", decision.action, symbol, c_name, conf_sym)
-                                    else:
-                                        order_res = mt5_executor.dispatch_signal_order(
-                                            decision=decision,
-                                            setup=setup,
-                                            lot_size=self.lot_size,
+                                    order_res = mt5_executor.dispatch_signal_order(
+                                        decision=decision,
+                                        setup=setup,
+                                        lot_size=self.lot_size,
+                                    )
+                                    if order_res.get("success"):
+                                        order_ticket = order_res.get("ticket")
+                                        logger.info(
+                                            "🚀 [MT5 AUTO-ORDER] Order %s %s didispatch ke antrean MT5 (Lot: %.2f, OrderID: %s)!",
+                                            decision.action, symbol, self.lot_size, order_res.get("order_id", "-")
                                         )
-                                        if order_res.get("success"):
-                                            logger.info(
-                                                "🚀 [MT5 AUTO-ORDER] Order %s didispatch ke antrean MT5 (Lot: %.2f)!",
-                                                decision.action, self.lot_size
-                                            )
+                                    else:
+                                        logger.error("❌ [MT5 AUTO-ORDER FAILED] Gagal mendispatch order %s %s: %s",
+                                                     decision.action, symbol, order_res.get("error", "Unknown error"))
+
+                                # 2. Catat sinyal ke dalam database untuk dilacak hasilnya (Outcome Tracker)
+                                signal_tracker.record_signal(decision, setup, ticket=order_ticket)
                         elif setup:
                             logger.info(
                                 "⏳ [%s] %s [Bar Selesai: %s] | Live Price: %.5f | RSI: %.1f | Tren: %s | MACD: %s | Status: %s | %s",

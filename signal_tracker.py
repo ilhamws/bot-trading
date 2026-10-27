@@ -7,6 +7,7 @@ inject corrective trading guardrails into ChromaDB knowledge base.
 
 import sqlite3
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple, Set
@@ -71,7 +72,7 @@ class SignalTracker:
             """)
             conn.commit()
 
-    def record_signal(self, decision: Any, setup: Dict[str, Any]) -> Optional[int]:
+    def record_signal(self, decision: Any, setup: Dict[str, Any], ticket: Optional[int] = None) -> Optional[int]:
         """Record newly dispatched BUY or SELL trading signal into tracker database."""
         action = getattr(decision, "action", "")
         if action not in ("BUY", "SELL"):
@@ -106,8 +107,8 @@ class SignalTracker:
                 INSERT INTO trading_signals (
                     created_at, instrument, timeframe, action, entry_price, stop_loss,
                     take_profit, risk_reward_ratio, confidence_score, pattern_name,
-                    indicator_status, notes_detail, bar_timestamp, status
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')
+                    indicator_status, notes_detail, bar_timestamp, status, ticket
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?)
             """, (
                 created_at,
                 instrument,
@@ -122,11 +123,12 @@ class SignalTracker:
                 getattr(decision, "indicator_status", setup.get("indicator_status", "")),
                 getattr(decision, "notes_detail", setup.get("notes", "")),
                 str(bar_ts),
+                ticket,
             ))
             conn.commit()
             signal_id = cursor.lastrowid
-            logger.info("📝 [TRACKER] Sinyal %s %s [%s] ID #%d tercatat di database (Entry: %.5f, SL: %.5f, TP: %.5f)",
-                        action, instrument, timeframe, signal_id, entry_val, sl_val, tp_val)
+            logger.info("📝 [TRACKER] Sinyal %s %s [%s] ID #%d tercatat di database (Entry: %.5f, SL: %.5f, TP: %.5f, Ticket: %s)",
+                        action, instrument, timeframe, signal_id, entry_val, sl_val, tp_val, ticket)
             return signal_id
 
     def sync_executed_orders(self) -> None:
@@ -750,24 +752,45 @@ TUGAS ANDA:
                 return None
 
     def get_all_active_symbols(self) -> List[str]:
-        """Retrieve all currently active symbols across disk pending queue and database OPEN signals."""
+        """Retrieve all currently active symbols strictly from real MT5 positions and in-flight pending queue."""
         active_syms: Set[str] = set()
 
-        # 1. Cek antrean pending di disk
+        # 1. Cek Ground Truth posisi riil MetaTrader 5 dari live_positions.json
+        live_file = Path(__file__).resolve().parent / "orders_queue" / "live_positions.json"
+        is_live_sync_active = False
+        if live_file.exists():
+            try:
+                # Periksa apakah file diperbarui baru-baru ini (dalam 60 detik)
+                file_age = time.time() - live_file.stat().st_mtime
+                if file_age <= 60.0:
+                    with open(live_file, "r", encoding="utf-8") as jf:
+                        live_data = json.load(jf)
+                    for pos in live_data.get("positions", []):
+                        sym = str(pos.get("symbol", "")).upper()
+                        if sym:
+                            active_syms.add(sym)
+                    is_live_sync_active = True
+            except Exception as e:
+                logger.debug("Error membaca live_positions.json: %s", e)
+
+        # 2. Cek antrean order yang sedang meluncur (in-flight) di disk (belum sempat dieksekusi bridge)
         pending_dir = Path(__file__).resolve().parent / "orders_queue" / "pending"
         if pending_dir.exists():
             for f in pending_dir.glob("ORD_*.json"):
-                # Ekstrak simbol dari nama file ORD_EURUSD_...
                 parts = f.stem.split("_")
                 if len(parts) >= 2:
                     active_syms.add(parts[1].upper())
 
-        # 2. Cek database trading_signals untuk status OPEN
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT DISTINCT instrument FROM trading_signals WHERE status = 'OPEN'")
-            for row in cursor.fetchall():
-                active_syms.add(row["instrument"].upper())
+        # 3. Fallback HANYA jika mt5_bridge belum berjalan: HANYA cek sinyal database yang memiliki nomor TIKET riil (bukan sinyal hantu)
+        if not is_live_sync_active:
+            with self._get_connection() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT DISTINCT instrument FROM trading_signals 
+                    WHERE status = 'OPEN' AND ticket IS NOT NULL
+                """)
+                for row in cursor.fetchall():
+                    active_syms.add(row["instrument"].upper())
 
         return list(active_syms)
 
@@ -783,26 +806,10 @@ TUGAS ANDA:
         return get_cluster_conflicts(symbol, active_symbols, max_per_cluster=max_per_cluster)
 
     def has_open_position(self, symbol: str) -> bool:
-        """Check if symbol currently has an active open position in MT5 or DB to prevent duplicate orders."""
+        """Check if symbol currently has an active open position in MT5 or in-flight queue."""
         sym = symbol.upper()
-        # 1. Cek antrean pending di disk (belum dieksekusi bridge)
-        pending_dir = Path(__file__).resolve().parent / "orders_queue" / "pending"
-        if pending_dir.exists():
-            for _ in pending_dir.glob(f"ORD_{sym}_*.json"):
-                return True
-
-        # 2. Cek database trading_signals untuk status OPEN
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT id FROM trading_signals
-                WHERE instrument = ? AND status = 'OPEN'
-                LIMIT 1
-            """, (sym,))
-            if cursor.fetchone():
-                return True
-
-        return False
+        active_syms = self.get_all_active_symbols()
+        return sym in active_syms
 
     def is_loss_cooldown(self, symbol: str, cooldown_minutes: int = 15) -> Tuple[bool, Optional[str]]:
         """Check if symbol is in post-loss cooldown to prevent revenge trading or consecutive stop-outs."""
