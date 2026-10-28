@@ -1635,6 +1635,38 @@ class LiveMarketScanner:
                         )
                         bear_matches = []
 
+        # Anti-Dead Market & Volatility Compression Veto:
+        # Dilarang membuka posisi pada pasar mati / kompresi ekstrem di mana ATR terlalu kecil atau lebar BB terlalu sempit
+        if (bull_matches or bear_matches) and self.interval in ("1m", "3m", "5m"):
+            atr_pips = smc_data.get("atr_pips", 0.0)
+            bb_width_pips = (cur_bb_upper - cur_bb_lower) / pip_unit
+            tf_factor = 0.6 if self.interval == "1m" else (0.8 if self.interval == "3m" else 1.0)
+
+            if is_gold:
+                min_atr_thresh = 8.0 * tf_factor
+                min_bb_width_thresh = 35.0 * tf_factor
+            elif is_jpy:
+                min_atr_thresh = 4.5 * tf_factor
+                min_bb_width_thresh = 18.0 * tf_factor
+            elif is_crypto:
+                min_atr_thresh = 40.0 * tf_factor
+                min_bb_width_thresh = 150.0 * tf_factor
+            elif is_eth:
+                min_atr_thresh = 4.0 * tf_factor
+                min_bb_width_thresh = 15.0 * tf_factor
+            else:
+                min_atr_thresh = 3.2 * tf_factor
+                min_bb_width_thresh = 14.0 * tf_factor
+
+            if atr_pips < min_atr_thresh or bb_width_pips < min_bb_width_thresh:
+                logger.info(
+                    "🚫 [LOW VOLATILITY VETO] Sinyal %s dibatalkan karena pasar mati / kompresi sempit "
+                    "(ATR: %.1f < Min: %.1f pips, BB Width: %.1f < Min: %.1f pips).",
+                    symbol, atr_pips, min_atr_thresh, bb_width_pips, min_bb_width_thresh
+                )
+                bull_matches = []
+                bear_matches = []
+
         # SOP STEVE NISON: Pemicu Entri Fisik Wajib Berupa Pola Candlestick Murni atau Chart Pattern Terkonfirmasi
         PURE_CANDLESTICK_TRIGGERS_BULL = {
             "Hammer", "Inverted Hammer", "Bullish Engulfing", "Piercing Line",
