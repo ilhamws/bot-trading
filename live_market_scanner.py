@@ -1439,9 +1439,10 @@ class LiveMarketScanner:
         # ==============================================================================
         
         # 1. ATURAN FILTER SELL:
-        # A. Hard Veto Kontradiksi Multi-Timeframe (MTF: 15m) - Larangan Mutlak Counter-Trend
+        # A. Hard Veto Kontradiksi Multi-Timeframe (MTF: 15m) - Larangan Mutlak Counter-Trend & Counter-Momentum
         if not mtf_eval_bear.get("is_allowed") and self.interval in ("1m", "3m", "5m"):
-            logger.info("🚫 [MTF VETO] Sinyal SELL dibatalkan karena melawan tren mayor Bullish 15m.")
+            reason_bear = mtf_eval_bear.get("contradiction_reason", "Melawan tren mayor / momentum 15m")
+            logger.info("🚫 [MTF VETO] Sinyal SELL dibatalkan: %s.", reason_bear)
             bear_matches = []
 
         # B. Anti-Steep EMA Uptrend Veto: Dilarang SELL jika EMA20 & EMA50 keduanya menanjak tajam
@@ -1485,9 +1486,10 @@ class LiveMarketScanner:
                 bear_matches = []
 
         # 2. ATURAN FILTER BUY:
-        # A. Hard Veto Kontradiksi Multi-Timeframe (MTF: 15m) - Larangan Mutlak Counter-Trend
+        # A. Hard Veto Kontradiksi Multi-Timeframe (MTF: 15m) - Larangan Mutlak Counter-Trend & Counter-Momentum
         if not mtf_eval_bull.get("is_allowed") and self.interval in ("1m", "3m", "5m"):
-            logger.info("🚫 [MTF VETO] Sinyal BUY dibatalkan karena melawan tren mayor Bearish 15m.")
+            reason_bull = mtf_eval_bull.get("contradiction_reason", "Melawan tren mayor / momentum 15m")
+            logger.info("🚫 [MTF VETO] Sinyal BUY dibatalkan: %s.", reason_bull)
             bull_matches = []
 
         # B. Anti-Steep EMA Downtrend Veto: Dilarang BUY jika EMA20 & EMA50 keduanya menukik tajam

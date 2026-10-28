@@ -98,6 +98,8 @@ class MultiTimeframeEngine:
             "trend": trend_desc,
             "rsi": round(cur_rsi, 1),
             "macd_status": macd_desc,
+            "macd_bull": macd_bull,
+            "is_above_ema200": is_above_ema200,
             "close": curr_close,
             "ema200": ema200,
             "ema50": ema50,
@@ -110,26 +112,50 @@ class MultiTimeframeEngine:
         df_30m: Optional[pd.DataFrame] = None,
         candidate_action: str = "BUY",
     ) -> Dict[str, Any]:
-        """Evaluate intermediate trend alignment using exclusively the 15m timeframe."""
+        """Evaluate intermediate trend and momentum alignment using exclusively the 15m timeframe."""
         res_15m = self.analyze_single_tf(df_15m, "15m") if df_15m is not None else {"valid": False, "bias": "Neutral"}
+        if not res_15m.get("valid", False):
+            return {
+                "is_allowed": True,
+                "contradiction_reason": None,
+                "confluences": [],
+                "bias_15m": "Neutral",
+                "details_15m": res_15m,
+                "summary": "MTF Matrix -> [15m: Standby]",
+            }
+
         bias_15 = res_15m.get("bias", "Neutral")
+        macd_bull = res_15m.get("macd_bull", False)
+        rsi_15 = res_15m.get("rsi", 50.0)
 
         mtf_confluences: List[str] = []
         is_allowed = True
         contradiction_reason = None
 
         if "BUY" in candidate_action.upper():
+            # 1. Hard Veto Tren Statis: Dilarang BUY jika tren 15m Bearish di bawah EMA 200
             if bias_15 == "Bearish":
                 is_allowed = False
-                contradiction_reason = "Kontradiksi MTF: Timeframe 15m Bearish kuat di bawah EMA 200 (Dilarang BUY melawan tren mayor 15m)"
-            elif bias_15 == "Bullish":
+                contradiction_reason = "Kontradiksi MTF: Timeframe 15m Bearish di bawah EMA 200 (Dilarang BUY melawan tren mayor 15m)"
+            # 2. Strict Momentum Guard: Dilarang BUY jika MACD 15m sedang Bearish / Death Cross (kecuali oversold parah <= 30)
+            elif not macd_bull and rsi_15 > 30.0:
+                is_allowed = False
+                contradiction_reason = "Kontradiksi Momentum MTF: MACD 15m sedang Death Cross / Bearish (Dilarang BUY melawan penurunan momentum 15m)"
+            # 3. Konfluensi Grade-A hanya diberikan jika Tren Bullish DAN MACD Bullish (True Dual Alignment)
+            elif bias_15 == "Bullish" and macd_bull:
                 mtf_confluences.append("Konfluensi MTF Grade-A (15m Searah Bullish)")
 
         elif "SELL" in candidate_action.upper():
+            # 1. Hard Veto Tren Statis: Dilarang SELL jika tren 15m Bullish di atas EMA 200
             if bias_15 == "Bullish":
                 is_allowed = False
-                contradiction_reason = "Kontradiksi MTF: Timeframe 15m Bullish kuat di atas EMA 200 (Dilarang SELL melawan tren mayor 15m)"
-            elif bias_15 == "Bearish":
+                contradiction_reason = "Kontradiksi MTF: Timeframe 15m Bullish di atas EMA 200 (Dilarang SELL melawan tren mayor 15m)"
+            # 2. Strict Momentum Guard: Dilarang SELL jika MACD 15m sedang Bullish / Golden Cross (kecuali overbought parah >= 70)
+            elif macd_bull and rsi_15 < 70.0:
+                is_allowed = False
+                contradiction_reason = "Kontradiksi Momentum MTF: MACD 15m sedang Golden Cross / Bullish (Dilarang SELL melawan kenaikan momentum 15m)"
+            # 3. Konfluensi Grade-A hanya diberikan jika Tren Bearish DAN MACD Bearish (True Dual Alignment)
+            elif bias_15 == "Bearish" and not macd_bull:
                 mtf_confluences.append("Konfluensi MTF Grade-A (15m Searah Bearish)")
 
         summary_text = f"MTF Matrix -> [{res_15m.get('summary', '15m: N/A')}]"
