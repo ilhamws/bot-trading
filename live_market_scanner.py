@@ -1456,16 +1456,16 @@ class LiveMarketScanner:
             bear_matches = []
 
         # D. Anti-Rocket & Momentum Collision Veto:
-        # Dilarang SELL jika MACD sedang Golden Cross aktif (Bullish Momentum), KECUALI jika RSI Overbought parah (>= 70) dengan sumbu rejeksi nyata (>= 30% range)
+        # Dilarang SELL jika MACD sedang Golden Cross aktif (Bullish Momentum), KECUALI jika ada konfirmasi candle reversal bearish solid atau sumbu rejeksi nyata
         elif cur_macd > cur_signal:
-            if not (cur_rsi >= 70.0 and upper_shadow >= 0.30 * c_range):
-                logger.info("🚫 [MOMENTUM VETO] Sinyal SELL dibatalkan karena bertabrakan dengan MACD Bullish Golden Cross.")
+            if not (has_bear_reversal or has_bear_continuation or (cur_rsi >= 65.0 and upper_shadow >= 0.25 * c_range) or (c_close < c_open and upper_shadow >= 0.30 * c_range)):
+                logger.info("🚫 [MOMENTUM VETO] Sinyal SELL dibatalkan karena bertabrakan dengan MACD Bullish Golden Cross tanpa konfirmasi rejeksi.")
                 bear_matches = []
         elif cur_rsi > 78.0 and upper_shadow < 0.35 * c_range:
             bear_matches = []
 
-        # D2. Micro-trend EMA Alignment Veto: Dilarang SELL jika harga ditutup di atas EMA20 dan EMA20 sedang menanjak
-        elif c_close > cur_ema20 and cur_ema20 > prev_ema20:
+        # D2. Micro-trend EMA Alignment Veto: Dilarang SELL jika harga ditutup di atas EMA20 dan EMA20 sedang menanjak (kecuali ada pola pembalikan puncak)
+        elif c_close > cur_ema20 and cur_ema20 > prev_ema20 and not (has_bear_reversal or is_shooting_star):
             logger.info("🚫 [EMA ALIGNMENT VETO] Sinyal SELL dibatalkan karena harga di atas EMA20 yang sedang menanjak (Micro-Bullish Rebound).")
             bear_matches = []
 
@@ -1476,19 +1476,19 @@ class LiveMarketScanner:
             # DILARANG SELL tepat setelah Golden Cross terjadi (1-2 bar terakhir), karena momentum kenaikan baru saja dimulai
             bear_matches = []
         elif has_bear_continuation:
-            if cur_rsi < 30 or c_close <= cur_bb_lower + spread_tol or c_low <= cur_bb_lower:
+            if cur_rsi < 28 or c_close <= cur_bb_lower + spread_tol or c_low <= cur_bb_lower:
                 bear_matches = []
         elif has_bear_reversal:
-            if cur_rsi < 45.0 or c_close <= cur_bb_basis or c_high < (cur_bb_basis + cur_bb_upper) / 2:
+            if cur_rsi < 35.0 or c_close <= cur_bb_lower:
                 bear_matches = []
         else:
-            if cur_rsi < 35 or c_close <= cur_bb_lower:
+            if cur_rsi < 32 or c_close <= cur_bb_lower:
                 bear_matches = []
 
         # 2. ATURAN FILTER BUY:
-        # A. Hard Veto Kontradiksi Multi-Timeframe (MTF: 15m) - Larangan Mutlak Counter-Trend & Counter-Momentum
+        # A. Hard Veto Kontradiksi Multi-Timeframe (MTF: 15m) - Larangan Mutlak Counter-Trend
         if not mtf_eval_bull.get("is_allowed") and self.interval in ("1m", "3m", "5m"):
-            reason_bull = mtf_eval_bull.get("contradiction_reason", "Melawan tren mayor / momentum 15m")
+            reason_bull = mtf_eval_bull.get("contradiction_reason", "Melawan tren mayor 15m")
             logger.info("🚫 [MTF VETO] Sinyal BUY dibatalkan: %s.", reason_bull)
             bull_matches = []
 
@@ -1503,16 +1503,16 @@ class LiveMarketScanner:
             bull_matches = []
 
         # D. Anti-Falling Knife & Momentum Collapse Veto:
-        # Dilarang BUY jika MACD sedang Death Cross aktif (Bearish Momentum), KECUALI jika RSI Oversold parah (<= 30) dengan sumbu pantulan nyata (>= 30% range)
+        # Dilarang BUY jika MACD sedang Death Cross aktif (Bearish Momentum), KECUALI jika ada konfirmasi candle reversal bullish solid atau sumbu pantulan nyata
         elif cur_macd < cur_signal:
-            if not (cur_rsi <= 30.0 and lower_shadow >= 0.30 * c_range):
-                logger.info("🚫 [MOMENTUM VETO] Sinyal BUY dibatalkan karena bertabrakan dengan MACD Bearish Death Cross.")
+            if not (has_bull_reversal or has_bull_continuation or (cur_rsi <= 35.0 and lower_shadow >= 0.25 * c_range) or (c_close > c_open and lower_shadow >= 0.30 * c_range)):
+                logger.info("🚫 [MOMENTUM VETO] Sinyal BUY dibatalkan karena bertabrakan dengan MACD Bearish Death Cross tanpa konfirmasi rejeksi.")
                 bull_matches = []
         elif cur_rsi < 22.0 and lower_shadow < 0.35 * c_range:
             bull_matches = []
 
-        # D2. Micro-trend EMA Alignment Veto: Dilarang BUY jika harga ditutup di bawah EMA20 dan EMA20 sedang menukik turun
-        elif c_close < cur_ema20 and cur_ema20 < prev_ema20:
+        # D2. Micro-trend EMA Alignment Veto: Dilarang BUY jika harga ditutup di bawah EMA20 dan EMA20 sedang menukik turun (kecuali ada pola pembalikan dasar)
+        elif c_close < cur_ema20 and cur_ema20 < prev_ema20 and not (has_bull_reversal or is_hammer):
             logger.info("🚫 [EMA ALIGNMENT VETO] Sinyal BUY dibatalkan karena harga di bawah EMA20 yang sedang menukik (Micro-Bearish Plunge).")
             bull_matches = []
 
@@ -1523,22 +1523,22 @@ class LiveMarketScanner:
             # DILARANG BUY tepat setelah Death Cross terjadi (1-2 bar terakhir), karena momentum penurunan baru saja dimulai
             bull_matches = []
         elif has_bull_continuation:
-            if cur_rsi > 70 or c_close >= cur_bb_upper - spread_tol or c_high >= cur_bb_upper:
+            if cur_rsi > 72 or c_close >= cur_bb_upper - spread_tol or c_high >= cur_bb_upper:
                 bull_matches = []
         elif has_bull_reversal:
-            if cur_rsi > 55.0 or c_close >= cur_bb_basis or c_low > (cur_bb_basis + cur_bb_lower) / 2:
+            if cur_rsi > 68.0 or c_close >= cur_bb_upper:
                 bull_matches = []
         else:
-            if cur_rsi > 65 or c_close >= cur_bb_upper:
+            if cur_rsi > 68 or c_close >= cur_bb_upper:
                 bull_matches = []
 
-        # Anti-Overbought Exhaustion Hard Veto: Dilarang keras BUY di pucuk jika Stochastic > 78 atau RSI > 68 atau harga menembus BB Upper
-        if cur_stoch_k > 78.0 or cur_rsi > 68.0 or c_close >= cur_bb_upper:
+        # Anti-Overbought Exhaustion Veto: Dilarang keras BUY di pucuk jika Stochastic > 82 atau RSI > 70 atau harga menembus BB Upper KECUALI jika didukung breakout/reversal terkonfirmasi
+        if (cur_stoch_k > 82.0 or cur_rsi > 70.0 or c_close >= cur_bb_upper) and not (has_bull_continuation or has_bull_reversal):
             logger.info("🚫 [OVERBOUGHT VETO] Sinyal BUY dibatalkan karena pasar overextended di area pucuk/jenuh beli (Stoch: %.1f, RSI: %.1f, BB Upper: %.4f).", cur_stoch_k, cur_rsi, cur_bb_upper)
             bull_matches = []
 
-        # Anti-Oversold Exhaustion Hard Veto: Dilarang keras SELL di dasar jika Stochastic < 22 atau RSI < 32 atau harga menembus BB Lower
-        if cur_stoch_k < 22.0 or cur_rsi < 32.0 or c_close <= cur_bb_lower:
+        # Anti-Oversold Exhaustion Veto: Dilarang keras SELL di dasar jika Stochastic < 18 atau RSI < 30 atau harga menembus BB Lower KECUALI jika didukung breakdown/reversal terkonfirmasi
+        if (cur_stoch_k < 18.0 or cur_rsi < 30.0 or c_close <= cur_bb_lower) and not (has_bear_continuation or has_bear_reversal):
             logger.info("🚫 [OVERSOLD VETO] Sinyal SELL dibatalkan karena pasar overextended di area lembah/jenuh jual (Stoch: %.1f, RSI: %.1f, BB Lower: %.4f).", cur_stoch_k, cur_rsi, cur_bb_lower)
             bear_matches = []
 
@@ -1588,8 +1588,6 @@ class LiveMarketScanner:
                 bull_matches = []
             else:
                 overhead_res_candidates = []
-                if cur_bb_upper > c_close:
-                    overhead_res_candidates.append(("BB Upper", cur_bb_upper))
                 if vwap_upper_2 is not None and vwap_upper_2 > c_close:
                     overhead_res_candidates.append(("VWAP +2σ", vwap_upper_2))
                 if nearest_res is not None and nearest_res > c_close:
@@ -1618,8 +1616,6 @@ class LiveMarketScanner:
                 bear_matches = []
             else:
                 floor_sup_candidates = []
-                if cur_bb_lower < c_close:
-                    floor_sup_candidates.append(("BB Lower", cur_bb_lower))
                 if vwap_lower_2 is not None and vwap_lower_2 < c_close:
                     floor_sup_candidates.append(("VWAP -2σ", vwap_lower_2))
                 if nearest_sup is not None and nearest_sup < c_close:
@@ -1638,32 +1634,32 @@ class LiveMarketScanner:
                         bear_matches = []
 
         # Anti-Dead Market & Volatility Compression Veto:
-        # Dilarang membuka posisi pada pasar mati / kompresi ekstrem di mana ATR terlalu kecil atau lebar BB terlalu sempit
+        # Dilarang membuka posisi pada pasar mati / kompresi ekstrem di mana ATR terlalu kecil DAN lebar BB terlalu sempit secara bersamaan
         if (bull_matches or bear_matches) and self.interval in ("1m", "3m", "5m"):
             atr_pips = smc_data.get("atr_pips", 0.0)
             bb_width_pips = (cur_bb_upper - cur_bb_lower) / pip_unit
             tf_factor = 0.6 if self.interval == "1m" else (0.8 if self.interval == "3m" else 1.0)
 
             if is_gold:
-                min_atr_thresh = 8.0 * tf_factor
-                min_bb_width_thresh = 35.0 * tf_factor
-            elif is_jpy:
-                min_atr_thresh = 4.5 * tf_factor
-                min_bb_width_thresh = 18.0 * tf_factor
-            elif is_crypto:
-                min_atr_thresh = 40.0 * tf_factor
-                min_bb_width_thresh = 150.0 * tf_factor
-            elif is_eth:
                 min_atr_thresh = 4.0 * tf_factor
-                min_bb_width_thresh = 15.0 * tf_factor
+                min_bb_width_thresh = 18.0 * tf_factor
+            elif is_jpy:
+                min_atr_thresh = 2.5 * tf_factor
+                min_bb_width_thresh = 10.0 * tf_factor
+            elif is_crypto:
+                min_atr_thresh = 20.0 * tf_factor
+                min_bb_width_thresh = 80.0 * tf_factor
+            elif is_eth:
+                min_atr_thresh = 2.0 * tf_factor
+                min_bb_width_thresh = 8.0 * tf_factor
             else:
-                min_atr_thresh = 3.2 * tf_factor
-                min_bb_width_thresh = 14.0 * tf_factor
+                min_atr_thresh = 1.8 * tf_factor
+                min_bb_width_thresh = 8.0 * tf_factor
 
-            if atr_pips < min_atr_thresh or bb_width_pips < min_bb_width_thresh:
+            if atr_pips < min_atr_thresh and bb_width_pips < min_bb_width_thresh:
                 logger.info(
                     "🚫 [LOW VOLATILITY VETO] Sinyal %s dibatalkan karena pasar mati / kompresi sempit "
-                    "(ATR: %.1f < Min: %.1f pips, BB Width: %.1f < Min: %.1f pips).",
+                    "(ATR: %.1f < Min: %.1f pips DAN BB Width: %.1f < Min: %.1f pips).",
                     symbol, atr_pips, min_atr_thresh, bb_width_pips, min_bb_width_thresh
                 )
                 bull_matches = []
@@ -2044,7 +2040,15 @@ def main() -> None:
             print("\nℹ️ Belum ada riwayat LOSS atau BREAKEVEN baru yang perlu dievaluasi.")
         return
 
-    symbols_list = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
+    raw_symbols = args.symbols.strip().upper()
+    if raw_symbols in ("ALL", "ALL_MARKETS"):
+        # Semua pasar Forex + Gold + Kripto (kecuali saham lokal IDX)
+        symbols_list = [s for s in YF_SYMBOL_MAP.keys() if s not in ("BBCA", "BBRI")]
+    elif raw_symbols in ("FOREX", "ALL_FOREX"):
+        # Seluruh pasangan mata uang Forex
+        symbols_list = [s for s in YF_SYMBOL_MAP.keys() if s not in ("BBCA", "BBRI", "XAUUSD", "BTCUSD")]
+    else:
+        symbols_list = [s.strip().upper() for s in args.symbols.split(",") if s.strip()]
 
     scanner = LiveMarketScanner(
         symbols=symbols_list,

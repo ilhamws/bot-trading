@@ -137,11 +137,7 @@ class MultiTimeframeEngine:
             if bias_15 == "Bearish":
                 is_allowed = False
                 contradiction_reason = "Kontradiksi MTF: Timeframe 15m Bearish di bawah EMA 200 (Dilarang BUY melawan tren mayor 15m)"
-            # 2. Strict Momentum Guard: Dilarang BUY jika MACD 15m sedang Bearish / Death Cross (kecuali oversold parah <= 30)
-            elif not macd_bull and rsi_15 > 30.0:
-                is_allowed = False
-                contradiction_reason = "Kontradiksi Momentum MTF: MACD 15m sedang Death Cross / Bearish (Dilarang BUY melawan penurunan momentum 15m)"
-            # 3. Konfluensi Grade-A hanya diberikan jika Tren Bullish DAN MACD Bullish (True Dual Alignment)
+            # 2. Konfluensi Grade-A diberikan jika Tren Bullish DAN MACD Bullish (True Dual Alignment)
             elif bias_15 == "Bullish" and macd_bull:
                 mtf_confluences.append("Konfluensi MTF Grade-A (15m Searah Bullish)")
 
@@ -150,11 +146,7 @@ class MultiTimeframeEngine:
             if bias_15 == "Bullish":
                 is_allowed = False
                 contradiction_reason = "Kontradiksi MTF: Timeframe 15m Bullish di atas EMA 200 (Dilarang SELL melawan tren mayor 15m)"
-            # 2. Strict Momentum Guard: Dilarang SELL jika MACD 15m sedang Bullish / Golden Cross (kecuali overbought parah >= 70)
-            elif macd_bull and rsi_15 < 70.0:
-                is_allowed = False
-                contradiction_reason = "Kontradiksi Momentum MTF: MACD 15m sedang Golden Cross / Bullish (Dilarang SELL melawan kenaikan momentum 15m)"
-            # 3. Konfluensi Grade-A hanya diberikan jika Tren Bearish DAN MACD Bearish (True Dual Alignment)
+            # 2. Konfluensi Grade-A diberikan jika Tren Bearish DAN MACD Bearish (True Dual Alignment)
             elif bias_15 == "Bearish" and not macd_bull:
                 mtf_confluences.append("Konfluensi MTF Grade-A (15m Searah Bearish)")
 
