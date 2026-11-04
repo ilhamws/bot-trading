@@ -133,19 +133,33 @@ class MultiTimeframeEngine:
         contradiction_reason = None
 
         if "BUY" in candidate_action.upper():
-            # 1. Hard Veto Tren Statis: Dilarang BUY jika tren 15m Bearish di bawah EMA 200
+            # 1. Hard Veto Tren Statis & Bias Netral: Dilarang BUY jika tren 15m Bearish atau Netral
             if bias_15 == "Bearish":
                 is_allowed = False
                 contradiction_reason = "Kontradiksi MTF: Timeframe 15m Bearish di bawah EMA 200 (Dilarang BUY melawan tren mayor 15m)"
+            elif bias_15 == "Neutral":
+                is_allowed = False
+                contradiction_reason = "Kontradiksi MTF: Timeframe 15m bias Netral (Pasar konsolidasi/sideways rawan false breakout)"
+            # 1b. Hard Veto MTF Overbought: Dilarang BUY jika RSI 15m >= 70.0 (Jenuh beli di higher timeframe)
+            elif rsi_15 >= 70.0:
+                is_allowed = False
+                contradiction_reason = f"Kontradiksi MTF: RSI 15m Overbought ({rsi_15:.1f} >= 70.0, Dilarang BUY di area pucuk 15m)"
             # 2. Konfluensi Grade-A diberikan jika Tren Bullish DAN MACD Bullish (True Dual Alignment)
             elif bias_15 == "Bullish" and macd_bull:
                 mtf_confluences.append("Konfluensi MTF Grade-A (15m Searah Bullish)")
 
         elif "SELL" in candidate_action.upper():
-            # 1. Hard Veto Tren Statis: Dilarang SELL jika tren 15m Bullish di atas EMA 200
+            # 1. Hard Veto Tren Statis & Bias Netral: Dilarang SELL jika tren 15m Bullish atau Netral
             if bias_15 == "Bullish":
                 is_allowed = False
                 contradiction_reason = "Kontradiksi MTF: Timeframe 15m Bullish di atas EMA 200 (Dilarang SELL melawan tren mayor 15m)"
+            elif bias_15 == "Neutral":
+                is_allowed = False
+                contradiction_reason = "Kontradiksi MTF: Timeframe 15m bias Netral (Pasar konsolidasi/sideways rawan false breakout)"
+            # 1b. Hard Veto MTF Oversold: Dilarang SELL jika RSI 15m <= 30.0 (Jenuh jual di higher timeframe)
+            elif rsi_15 <= 30.0:
+                is_allowed = False
+                contradiction_reason = f"Kontradiksi MTF: RSI 15m Oversold ({rsi_15:.1f} <= 30.0, Dilarang SELL di area dasar 15m)"
             # 2. Konfluensi Grade-A diberikan jika Tren Bearish DAN MACD Bearish (True Dual Alignment)
             elif bias_15 == "Bearish" and not macd_bull:
                 mtf_confluences.append("Konfluensi MTF Grade-A (15m Searah Bearish)")

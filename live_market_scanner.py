@@ -1374,6 +1374,26 @@ class LiveMarketScanner:
             "Institutional VWAP +2σ Mean Reversion (Overbought Rejection)"
         }
 
+        # SOP STEVE NISON: Pemicu Entri Fisik Wajib Berupa Pola Candlestick Murni atau Chart Pattern Terkonfirmasi
+        PURE_CANDLESTICK_TRIGGERS_BULL = {
+            "Hammer", "Inverted Hammer", "Bullish Engulfing", "Piercing Line",
+            "Tweezer Bottom", "Morning Star", "Three White Soldiers",
+            "Bullish Kicker", "Three Inside Up", "Bullish Harami",
+            "Bullish Abandoned Baby", "Rising Three Methods",
+            "Double Bottom (W-Pattern)", "Inverse Head and Shoulders Reversal",
+            "Bull Flag Breakout (High-Probability Continuation)"
+        }
+        PURE_CANDLESTICK_TRIGGERS_BEAR = {
+            "Shooting Star", "Hanging Man", "Bearish Engulfing", "Dark Cloud Cover",
+            "Tweezer Top", "Evening Star", "Three Black Crows",
+            "Bearish Kicker", "Three Inside Down", "Bearish Harami",
+            "Bearish Abandoned Baby", "Falling Three Methods",
+            "Double Top (M-Pattern)", "Head and Shoulders Reversal",
+            "Bear Flag Breakdown (High-Probability Continuation)"
+        }
+
+        has_pure_bull_candle = any(m in PURE_CANDLESTICK_TRIGGERS_BULL for m in bull_matches)
+        has_pure_bear_candle = any(m in PURE_CANDLESTICK_TRIGGERS_BEAR for m in bear_matches)
         has_bull_reversal = any(m in BULLISH_REVERSAL_PATTERNS for m in bull_matches)
         has_bull_continuation = any(m in BULLISH_CONTINUATION_PATTERNS for m in bull_matches)
         has_bear_continuation = any(m in BEARISH_CONTINUATION_PATTERNS for m in bear_matches)
@@ -1456,10 +1476,10 @@ class LiveMarketScanner:
             bear_matches = []
 
         # D. Anti-Rocket & Momentum Collision Veto:
-        # Dilarang SELL jika MACD sedang Golden Cross aktif (Bullish Momentum), KECUALI jika ada konfirmasi candle reversal bearish solid atau sumbu rejeksi nyata
+        # Dilarang SELL jika MACD sedang Golden Cross aktif (Bullish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup merah dengan sumbu penolakan atas nyata
         elif cur_macd > cur_signal:
-            if not (has_bear_reversal or has_bear_continuation or (cur_rsi >= 65.0 and upper_shadow >= 0.25 * c_range) or (c_close < c_open and upper_shadow >= 0.30 * c_range)):
-                logger.info("🚫 [MOMENTUM VETO] Sinyal SELL dibatalkan karena bertabrakan dengan MACD Bullish Golden Cross tanpa konfirmasi rejeksi.")
+            if not (has_pure_bear_candle and c_close < c_open and upper_shadow >= 0.25 * c_range):
+                logger.info("🚫 [MOMENTUM VETO] Sinyal SELL dibatalkan karena bertabrakan dengan MACD Bullish Golden Cross tanpa konfirmasi candlestick reversal murni solid.")
                 bear_matches = []
         elif cur_rsi > 78.0 and upper_shadow < 0.35 * c_range:
             bear_matches = []
@@ -1503,10 +1523,10 @@ class LiveMarketScanner:
             bull_matches = []
 
         # D. Anti-Falling Knife & Momentum Collapse Veto:
-        # Dilarang BUY jika MACD sedang Death Cross aktif (Bearish Momentum), KECUALI jika ada konfirmasi candle reversal bullish solid atau sumbu pantulan nyata
+        # Dilarang BUY jika MACD sedang Death Cross aktif (Bearish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup hijau dengan sumbu pantulan nyata
         elif cur_macd < cur_signal:
-            if not (has_bull_reversal or has_bull_continuation or (cur_rsi <= 35.0 and lower_shadow >= 0.25 * c_range) or (c_close > c_open and lower_shadow >= 0.30 * c_range)):
-                logger.info("🚫 [MOMENTUM VETO] Sinyal BUY dibatalkan karena bertabrakan dengan MACD Bearish Death Cross tanpa konfirmasi rejeksi.")
+            if not (has_pure_bull_candle and c_close > c_open and lower_shadow >= 0.25 * c_range):
+                logger.info("🚫 [MOMENTUM VETO] Sinyal BUY dibatalkan karena bertabrakan dengan MACD Bearish Death Cross tanpa konfirmasi candlestick reversal murni solid.")
                 bull_matches = []
         elif cur_rsi < 22.0 and lower_shadow < 0.35 * c_range:
             bull_matches = []
@@ -1552,6 +1572,17 @@ class LiveMarketScanner:
         if has_bear_div and bull_matches:
             logger.info("🚫 [DIVERGENCE VETO] Sinyal BUY dibatalkan karena terdeteksi Bearish RSI Divergence (indikasi kuat tekanan/penurunan tajam).")
             bull_matches = []
+
+        # Anti-Opposing Order Block Veto: Dilarang BUY jika tepat menabrak Bearish Order Block; Dilarang SELL jika tepat menabrak Bullish Order Block
+        has_opposing_bear_ob = "Institutional Bearish Order Block" in smc_data.get("bear_confluences", [])
+        if has_opposing_bear_ob and bull_matches:
+            logger.info("🚫 [ORDER BLOCK VETO] Sinyal BUY dibatalkan karena harga tepat menabrak Institutional Bearish Order Block institusional.")
+            bull_matches = []
+
+        has_opposing_bull_ob = "Institutional Bullish Order Block" in smc_data.get("bull_confluences", [])
+        if has_opposing_bull_ob and bear_matches:
+            logger.info("🚫 [ORDER BLOCK VETO] Sinyal SELL dibatalkan karena harga tepat menabrak Institutional Bullish Order Block institusional.")
+            bear_matches = []
 
         # Anti-Proximity Veto (Anti-Buying into Resistance & Anti-Selling into Support):
         # Mencegah entry terjepit langsung di bawah Resistance kuat atau tepat di atas Support kuat tanpa ruang (headroom) yang cukup menuju TP
@@ -1664,27 +1695,6 @@ class LiveMarketScanner:
                 )
                 bull_matches = []
                 bear_matches = []
-
-        # SOP STEVE NISON: Pemicu Entri Fisik Wajib Berupa Pola Candlestick Murni atau Chart Pattern Terkonfirmasi
-        PURE_CANDLESTICK_TRIGGERS_BULL = {
-            "Hammer", "Inverted Hammer", "Bullish Engulfing", "Piercing Line",
-            "Tweezer Bottom", "Morning Star", "Three White Soldiers",
-            "Bullish Kicker", "Three Inside Up", "Bullish Harami",
-            "Bullish Abandoned Baby", "Rising Three Methods",
-            "Double Bottom (W-Pattern)", "Inverse Head and Shoulders Reversal",
-            "Bull Flag Breakout (High-Probability Continuation)"
-        }
-        PURE_CANDLESTICK_TRIGGERS_BEAR = {
-            "Shooting Star", "Hanging Man", "Bearish Engulfing", "Dark Cloud Cover",
-            "Tweezer Top", "Evening Star", "Three Black Crows",
-            "Bearish Kicker", "Three Inside Down", "Bearish Harami",
-            "Bearish Abandoned Baby", "Falling Three Methods",
-            "Double Top (M-Pattern)", "Head and Shoulders Reversal",
-            "Bear Flag Breakdown (High-Probability Continuation)"
-        }
-
-        has_pure_bull_candle = any(m in PURE_CANDLESTICK_TRIGGERS_BULL for m in bull_matches)
-        has_pure_bear_candle = any(m in PURE_CANDLESTICK_TRIGGERS_BEAR for m in bear_matches)
 
         # Ambang Batas Kualitas: Wajib Minimal 2 Konfluensi Grade-A DENGAN KEWAJIBAN MUTLAK MEMUAT POLA CANDLESTICK FISIK
         pattern_name = None
