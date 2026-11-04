@@ -1,6 +1,8 @@
 # ATURAN & MEMORI PERSISTEN SISTEM TRADING AI
 > **PENTING UNTUK ASISTEN AI (ANTIGRAVITY):**
 > File ini adalah memori inti dan konteks permanen proyek. Setiap kali pengguna menjalankan perintah `/clear` atau memulai sesi baru, Anda WAJIB langsung membaca dan menerapkan seluruh konteks, aturan, parameter, dan status terakhir di bawah ini tanpa meminta pengguna mengulang penjelasannya!
+>
+> ⚠️ **KEBIJAKAN GIT WORKFLOW (MUTLAK):** DILARANG KERAS melakukan `git commit` dan `git push` secara otomatis untuk repositori `bot trading` ini kecuali jika ada instruksi eksplisit tertulis dari pengguna. Branch repositori ini adalah `main` (BUKAN `project3dev`).
 
 ---
 
@@ -163,3 +165,16 @@
   * AI mendeteksi arah impuls berita fundamental di `news_filter.py` dan `live_market_scanner.py`.
   * **Aturan Pantangan Mutlak:** Dilarang keras membuka posisi berlawanan arah dengan impuls berita (*anti-falling knife*). Jika rilis berita memicu penurunan tajam (seperti CPI tinggi), sinyal BUY otomatis dibatalkan.
   * **Syarat Entri Pullback / Retest:** Entri searah hanya diizinkan saat harga melakukan koreksi sehat (*pullback*) ke EMA-20/50, Fair Value Gap (FVG), atau Stochastic hook di area diskon dengan konfirmasi candlestick pattern dan rasio Risk-to-Reward minimal 1 : 1.5.
+
+---
+
+## 8. Kebijakan Git & Repositori (Git Workflow Policy)
+* **Dilarang Commit & Push Otomatis:** Asisten AI DILARANG KERAS melakukan `git commit` maupun `git push` secara otomatis ke repository GitHub untuk proyek `bot trading` ini, KECUALI jika ada perintah/instruksi eksplisit tertulis dari pengguna.
+* **Branch Utama Repositori:** Seluruh kode repositori bot trading ini berada di branch `main`. Dilarang membuat, berpindah, atau melakukan push ke branch `project3dev` atau branch proyek lain.
+
+---
+
+## 9. Kebijakan Otonomi Eksekusi & Konfirmasi (Autonomous Workflow Policy)
+* **Investigasi & Analisis Mandiri:** AI wajib menjalankan seluruh rangkaian investigasi, audit database, pembacaan log, pencarian kode, hingga pengujian secara otonom sampai tuntas tanpa meminta konfirmasi Yes/No di tengah proses.
+* **Filter Konfirmasi Tunggal (Perubahan Kode):** AI HANYA meminta konfirmasi persetujuan (Yes/No) kepada pengguna saat hendak melakukan pengeditan atau penulisan pada file kode proyek.
+

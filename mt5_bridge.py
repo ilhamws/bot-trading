@@ -409,24 +409,39 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
         raw_tp_f = 0.0
 
     min_floor = get_asset_min_sl_floor(symbol, price)
+    tp_mode = str(order_data.get("tp_mode", ""))
+    ref_candle_close = float(order_data.get("candle_close", 0.0) or 0.0)
 
     if raw_sl_f > 0.0:
-        ref_p = planned_price if planned_price > 0.0 else price
+        # Gunakan ref_candle_close jika tersedia, fallback planned_price, fallback execution price
+        ref_p = ref_candle_close if ref_candle_close > 0.0 else (planned_price if planned_price > 0.0 else price)
         sl_dist = abs(raw_sl_f - ref_p)
         if sl_dist < min_floor:
             sl_dist = min_floor
 
         tp_dist = abs(raw_tp_f - ref_p) if raw_tp_f > 0.0 else round(sl_dist * 1.5, digits)
         min_adaptive_tp = round(sl_dist * 1.25, digits)
-        if tp_dist < min_adaptive_tp:
+
+        is_adaptive = "Adaptive" in tp_mode
+        if not is_adaptive and tp_dist < min_adaptive_tp:
+            tp_dist = round(sl_dist * 1.5, digits)
+        elif is_adaptive and tp_dist < (min_floor * 0.5):
             tp_dist = round(sl_dist * 1.5, digits)
 
         if action_str == "BUY":
             sl_val = round(price - sl_dist, digits)
-            tp_val = round(price + tp_dist, digits)
+            # Jika Adaptive Resistance dan raw_tp_f masih berada di atas harga riil eksekusi dengan jarak aman:
+            if is_adaptive and raw_tp_f > price + (min_floor * 0.5):
+                tp_val = raw_tp_f
+            else:
+                tp_val = round(price + tp_dist, digits)
         else:
             sl_val = round(price + sl_dist, digits)
-            tp_val = round(price - tp_dist, digits)
+            # Jika Adaptive Support dan raw_tp_f masih berada di bawah harga riil eksekusi dengan jarak aman:
+            if is_adaptive and 0.0 < raw_tp_f < price - (min_floor * 0.5):
+                tp_val = raw_tp_f
+            else:
+                tp_val = round(price - tp_dist, digits)
     else:
         sl_dist = min_floor
         tp_dist = round(min_floor * 1.5, digits)

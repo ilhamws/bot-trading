@@ -50,9 +50,10 @@ def dispatch_signal_order(
         except ValueError:
             return 0.0
 
-    raw_price = _clean_price(getattr(decision, "current_price", setup.get("price", 0.0)))
-    if raw_price <= 0:
-        raw_price = float(setup.get("price", 0.0))
+    c_close = float(setup.get("candle_close") or setup.get("price", 0.0))
+    raw_price = _clean_price(getattr(decision, "current_price", 0.0))
+    if raw_price <= 0 or (c_close > 0 and abs(raw_price - c_close) / c_close > 0.02):
+        raw_price = c_close if c_close > 0 else float(setup.get("price", 0.0))
 
     sl_dec = _clean_price(getattr(decision, "stop_loss", 0.0))
     tp_dec = _clean_price(getattr(decision, "take_profit", 0.0))
@@ -79,6 +80,7 @@ def dispatch_signal_order(
     price = str(raw_price)
     sl = str(final_sl)
     tp = str(final_tp)
+    tp_mode = setup.get("tp_mode", "Default 1.5x SL")
     reason = getattr(decision, "pattern_name", "") or setup.get("reason", "AI Setup")
 
     order_id = f"ORD_{symbol}_{int(time.time() * 1000)}"
@@ -93,8 +95,10 @@ def dispatch_signal_order(
         "action": action,
         "lot": lot_size,
         "price": price,
+        "candle_close": c_close,
         "sl": sl,
         "tp": tp,
+        "tp_mode": tp_mode,
         "reason": reason,
         "timeframe": timeframe,
         "candle_time": candle_time,
