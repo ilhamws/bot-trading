@@ -1586,6 +1586,17 @@ class LiveMarketScanner:
             logger.info("🚫 [ORDER BLOCK VETO] Sinyal SELL dibatalkan karena harga tepat menabrak Institutional Bullish Order Block institusional.")
             bear_matches = []
 
+        # Anti-Opposing Golden Pocket Veto: Dilarang BUY jika tepat menabrak Bearish Golden Pocket; Dilarang SELL jika di Bullish Golden Pocket
+        has_opposing_bear_gp = "Fibonacci Golden Pocket 0.618 (Optimal Bearish Rejection)" in adv_tech.get("bear_confluences", [])
+        if has_opposing_bear_gp and bull_matches:
+            logger.info("🚫 [GOLDEN POCKET VETO] Sinyal BUY dibatalkan karena harga berada di dalam zona penolakan Fibonacci Bearish Golden Pocket (0.50-0.618).")
+            bull_matches = []
+
+        has_opposing_bull_gp = "Fibonacci Golden Pocket 0.618 (Optimal Trade Entry)" in adv_tech.get("bull_confluences", [])
+        if has_opposing_bull_gp and bear_matches:
+            logger.info("🚫 [GOLDEN POCKET VETO] Sinyal SELL dibatalkan karena harga berada di dalam zona pantulan Fibonacci Bullish Golden Pocket (0.50-0.618).")
+            bear_matches = []
+
         # Anti-Proximity Veto (Anti-Buying into Resistance & Anti-Selling into Support):
         # Mencegah entry terjepit langsung di bawah Resistance kuat atau tepat di atas Support kuat tanpa ruang (headroom) yang cukup menuju TP
         sl_dist = smc_data.get("sl_distance", max(smc_data.get("atr_val", 0.001) * 1.5, 0.00060))

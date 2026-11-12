@@ -41,6 +41,7 @@ def get_asset_min_sl_floor(symbol: str, curr_price: float = 0.0) -> float:
     - EURJPY & other JPY crosses: min 0.090 (9.0 pips)
     - USDJPY: min 0.075 (7.5 pips)
     - GBPUSD, EURGBP: min 0.00070 (7.0 pips)
+    - Volatile Cross Pairs (EURAUD, AUDCAD, EURCAD, GBPAUD, GBPCAD): min 0.00085 (8.5 pips)
     - Major forex (EURUSD, AUDUSD, USDCAD, USDCHF, NZDUSD): min 0.00060 (6.0 pips)
     - Crypto (BTC/ETH): min $250.0 / $15.0
     """
@@ -53,6 +54,8 @@ def get_asset_min_sl_floor(symbol: str, curr_price: float = 0.0) -> float:
         if "USDJPY" in sym:
             return 0.075
         return 0.090  # EURJPY, AUDJPY, CADJPY, etc.
+    if any(k in sym for k in ("EURAUD", "EURCAD", "GBPAUD", "GBPCAD", "AUDCAD")):
+        return 0.00085  # 8.5 pips for volatile cross pairs
     if "GBP" in sym:
         return 0.00070  # GBPUSD, EURGBP
     if "BTC" in sym:

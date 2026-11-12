@@ -144,6 +144,14 @@
 ---
 
 ## 6. Riwayat Tiket & Status Terkini
+* **Hasil Investigasi Audit 2 Loss (10 Nov 2026):**
+  * Sinyal #128 (USDCHF SELL): Terkena SL akibat pantulan retracement di zona Bollinger Squeeze & noise sesi pra-London; SL 6.0 pips terlalu tipis.
+  * Sinyal #129 (AUDCAD BUY): Terkena SL setelah harga menabrak area penolakan resistensi institusional *Fibonacci Bearish Golden Pocket (0.50 - 0.618)* di 0.97705 - 0.97727.
+* **Tindakan Perbaikan yang Telah Diterapkan (10 Nov 2026):**
+  1. `Anti-Opposing Golden Pocket Veto`: Dilarang BUY jika menabrak Bearish Golden Pocket; dilarang SELL jika menabrak Bullish Golden Pocket.
+  2. `Volatile Cross Pairs SL Floor`: Dinaikkan menjadi minimal 8.5 pips (`0.00085`) untuk pair cross seperti EURAUD, AUDCAD, EURCAD, GBPAUD, GBPCAD agar tidak tercekik spread/noise.
+  3. `Auto-Reconciliation MT5 Bridge`: Bridge kini otomatis mencocokkan tiket tertutup dengan `history_deals_get()` saat restart agar database selalu 100% sinkron.
+  4. Status Sinyal #129 dan Refleksi AI #30 telah tersinkronisasi ke SQLite dan ChromaDB.
 * **Hasil Investigasi Audit 6 Loss (27 Okt 2026):**
   * Sinyal #61 (XAUUSD SELL): Terkena SL akibat lonjakan momentum bullish emas.
   * Sinyal #63 (GBPUSD SELL): Terkena SL karena jarak floor lama (4.5 pips) terlalu tipis tersenggol noise pre-London.

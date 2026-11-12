@@ -286,6 +286,7 @@ def get_asset_min_sl_floor(symbol: str, curr_price: float = 0.0) -> float:
     - EURJPY & other JPY crosses: min 0.090 (9.0 pips)
     - USDJPY: min 0.075 (7.5 pips)
     - GBPUSD, EURGBP: min 0.00070 (7.0 pips)
+    - Volatile Cross Pairs (EURAUD, AUDCAD, EURCAD, GBPAUD, GBPCAD): min 0.00085 (8.5 pips)
     - Major forex (EURUSD, AUDUSD, USDCAD, USDCHF, NZDUSD): min 0.00060 (6.0 pips)
     - Crypto (BTC/ETH): min $250.0 / $15.0
     """
@@ -298,6 +299,8 @@ def get_asset_min_sl_floor(symbol: str, curr_price: float = 0.0) -> float:
         if "USDJPY" in sym:
             return 0.075
         return 0.090  # EURJPY, AUDJPY, CADJPY, etc.
+    if any(k in sym for k in ("EURAUD", "EURCAD", "GBPAUD", "GBPCAD", "AUDCAD")):
+        return 0.00085  # 8.5 pips for volatile cross pairs
     if "GBP" in sym:
         return 0.00070  # GBPUSD, EURGBP
     if "BTC" in sym:
@@ -671,18 +674,35 @@ def execute_order(order_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def load_active_positions(close_if_breached: bool = False) -> None:
-    """Load previously executed orders that are still open in MT5."""
+    """Load previously executed orders that are still open in MT5 or reconcile newly closed tickets."""
     for f in EXECUTED_DIR.glob("*.json"):
         try:
             with open(f, "r", encoding="utf-8") as jf:
                 data = json.load(jf)
             exec_res = data.get("execution_result", {})
             ticket = exec_res.get("ticket")
-            if ticket:
-                pos = mt5.positions_get(ticket=ticket)
-                if pos and len(pos) > 0:
-                    active_positions[ticket] = data
-                    logger.info("📍 Memantau posisi terbuka MT5: Ticket #%d (%s %s)", ticket, data.get("symbol"), data.get("action"))
+            if not ticket or data.get("reconciled"):
+                continue
+
+            pos = mt5.positions_get(ticket=ticket)
+            if pos and len(pos) > 0:
+                active_positions[ticket] = data
+                logger.info("📍 Memantau posisi terbuka MT5: Ticket #%d (%s %s)", ticket, data.get("symbol"), data.get("action"))
+            else:
+                # Posisi sudah tertutup di MT5. Rekonsiliasi order jika belum pernah dilaporkan
+                out_file = OUTCOMES_DIR / f"OUTCOME_{ticket}.json"
+                file_mtime = f.stat().st_mtime
+                if (time.time() - file_mtime) < (3 * 86400) and not out_file.exists():
+                    deals = mt5.history_deals_get(position=ticket)
+                    if deals:
+                        active_positions[ticket] = data
+                        data["reconciled"] = True
+                        try:
+                            with open(f, "w", encoding="utf-8") as jf_out:
+                                json.dump(data, jf_out, indent=2)
+                        except Exception:
+                            pass
+                        logger.info("🔄 [REKONSILIASI DEALS] Tiket #%d terdeteksi selesai di MT5, menjadwalkan evaluasi outcome...", ticket)
         except Exception:
             pass
     # Periksa dan pasang SL/TP darurat jika ada posisi aktif tanpa proteksi
@@ -1029,6 +1049,20 @@ def check_closed_positions() -> None:
                     json.dump(outcome_payload, of, indent=2)
             except Exception as e:
                 logger.error("Gagal menulis outcome file: %s", e)
+
+            # Tandai file di EXECUTED_DIR sebagai 'reconciled' agar tidak diulang saat restart
+            order_id = order_data.get("order_id")
+            for ef in EXECUTED_DIR.glob("*.json"):
+                try:
+                    if (order_id and ef.stem == order_id) or f"_{ticket}" in ef.name:
+                        with open(ef, "r", encoding="utf-8") as ejf:
+                            ed = json.load(ejf)
+                        ed["reconciled"] = True
+                        with open(ef, "w", encoding="utf-8") as ejf:
+                            json.dump(ed, ejf, indent=2)
+                        break
+                except Exception:
+                    pass
 
     for t in closed_tickets:
         active_positions.pop(t, None)
