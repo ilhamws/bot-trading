@@ -111,6 +111,20 @@ class PDFIngestor:
             metadata={"description": "Proprietary trading modules and SOP knowledge base"},
         )
 
+    @staticmethod
+    def _determine_category(source_name: str) -> str:
+        """Categorize trading documents for high-precision RAG filtering."""
+        s = source_name.lower()
+        if "nison" in s or "candlestick" in s or "star" in s or "hammer" in s or "3400e" in s:
+            return "candlestick_sop"
+        elif "smc" in s or "ict" in s or "mega" in s or "fibonacci" in s or "divergence" in s:
+            return "smc_ict"
+        elif "regime" in s or "adx" in s or "trend" in s or "timeframe" in s or "matrix" in s:
+            return "trend_regime"
+        elif "risiko" in s or "atr" in s or "news" in s or "calendar" in s:
+            return "risk_atr"
+        return "general_tech"
+
     def extract_from_pdf(self, pdf_path: Path) -> List[Dict[str, Any]]:
         """Extract text page by page from a PDF file preserving metadata."""
         documents: List[Dict[str, Any]] = []
@@ -119,6 +133,7 @@ class PDFIngestor:
             total_pages = len(reader.pages)
             logger.info("Extracting '%s' (%d pages)...", pdf_path.name, total_pages)
 
+            cat = self._determine_category(pdf_path.name)
             for page_idx, page in enumerate(reader.pages, start=1):
                 raw_text = page.extract_text() or ""
                 cleaned_text = " ".join(raw_text.split())
@@ -132,6 +147,7 @@ class PDFIngestor:
                         "file_path": str(pdf_path),
                         "page": page_idx,
                         "total_pages": total_pages,
+                        "category": cat,
                     },
                 })
         except Exception as exc:
@@ -153,6 +169,7 @@ class PDFIngestor:
                         "file_path": str(text_path),
                         "page": 1,
                         "total_pages": 1,
+                        "category": self._determine_category(text_path.name),
                     },
                 })
         except Exception as exc:

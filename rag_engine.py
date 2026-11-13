@@ -264,12 +264,12 @@ def normalize_timeframe(tf: Any) -> str:
 TIMEFRAME_SL_TP_CONFIG = {
     "5m": {
         "style": "Scalping 5m",
-        "sl_pips": 3.0,
-        "sl_delta": 0.00030,
-        "tp_pips": 4.5,
-        "tp_delta": 0.00045,
+        "sl_pips": 6.0,
+        "sl_delta": 0.00060,
+        "tp_pips": 9.0,
+        "tp_delta": 0.00090,
         "rr": "1:1.50",
-        "description": "Scalping 5m (SL: 1.2x ATR [2.0-3.5 pips], TP: 1.5x SL [3.5-5.5 pips], R:R = 1:1.5)",
+        "description": "Scalping 5m (SL: max(1.5x ATR, min_floor [6.0 pips]), TP: 1.5x SL [9.0 pips], R:R = 1:1.5)",
     },
     "15m": {
         "style": "Short Intraday 15m",
@@ -427,8 +427,8 @@ ATURAN VALIDASI MUTLAK POLA CANDLESTICK, CHART PATTERNS & 5 PILAR TEKNIKAL LANJU
    - ATURAN SCALPING MACD (Fresh Cross vs Trend Scalping):
      * Dalam gaya scalping, posisi SELL tetap diizinkan saat momentum MACD masih bernilai positif jika momentum melandai atau terkonfirmasi pola Reversal/Divergence/Upper Band, KECUALI jika baru saja terjadi Golden Cross segar (Fresh Cross dalam 1-2 bar terakhir). Golden Cross baru menandakan gelombang bullish baru dimulai (Action: 'WAIT' untuk SELL).
      * Sebaliknya, posisi BUY tetap diizinkan saat momentum MACD masih bernilai negatif jika momentum melandai atau terkonfirmasi pola Reversal/Divergence/Lower Band, KECUALI jika baru saja terjadi Death Cross segar (Fresh Cross dalam 1-2 bar terakhir) (Action: 'WAIT' untuk BUY).
-   - PERINGATAN COUNTER-TREND MULTI-TIMEFRAME (15m):
-     * Jika payload memuat peringatan counter-trend ("⚠️ Peringatan: Counter-Trend"), sinyal JANGAN DIBATALKAN. Tetap berikan keputusan 'BUY' atau 'SELL' jika konfluensi timeframe 5m memenuhi syarat (>= 2 kriteria), namun WAJIB cantumkan peringatan risiko counter-trend pada 'technical_breakdown'.
+   - DILARANG KERAS COUNTER-TREND (ANTI COUNTER-TREND HARD VETO):
+     * DILARANG membuka posisi melawan arus makro institusional. Jika payload memuat indikasi atau peringatan counter-trend melawan tren mayor 15m atau 1H, tindakan WAJIB: 'WAIT' demi perlindungan modal. Sinyal yang melawan tren mayor dilarang dieksekusi.
    - Pola Bullish Harami dan Bearish Harami WAJIB memiliki candle kedua dengan body solid nyata (minimal 25% range candle) dan SELURUH High & Low candle kedua berada mutlak di dalam range mother candle. DILARANG KERAS melabeli candle DOJI sebagai Harami!
    - Pola Tweezer Top WAJIB memiliki puncak kembar presisi (selisih high <= 1-2 tick), candle kedua dilarang membuat higher high, dan wajib ada sumbu atas penolakan nyata (upper shadow >= 25% range).
    - Pola Tweezer Bottom WAJIB memiliki dasar kembar presisi (selisih low <= 1-2 tick), candle kedua dilarang membuat lower low, dan wajib ada sumbu bawah penolakan nyata (lower shadow >= 25% range).
@@ -533,7 +533,7 @@ ATURAN KALKULASI HARGA ENTRY, STOP LOSS (SL), DAN TAKE PROFIT (TP) BERBASIS VOLA
                         "distance": dist,
                     })
 
-            # Selalu sertakan aturan pantangan hasil refleksi mandiri AI (Self-Learned Guardrails) terbaru
+            # Selalu sertakan aturan pantangan hasil refleksi mandiri AI (Self-Learned Guardrails) terbaru yang diringkas
             try:
                 guardrail_res = self.collection.get(
                     where={"category": "self_learned_guardrail"},
@@ -541,9 +541,16 @@ ATURAN KALKULASI HARGA ENTRY, STOP LOSS (SL), DAN TAKE PROFIT (TP) BERBASIS VOLA
                 )
                 if guardrail_res and guardrail_res.get("documents"):
                     for g_doc, g_meta in zip(guardrail_res["documents"], guardrail_res["metadatas"]):
-                        if not any(r["text"] == g_doc for r in retrieved):
+                        clean_text = str(g_doc)
+                        # Bersihkan pembuka naratif dan sapaan esai
+                        clean_text = re.sub(r"^(Halo|Salam|Sebagai Master Trading Risk Auditor|Halo! Sebagai Master).*?\n+", "", clean_text, flags=re.IGNORECASE).strip()
+                        words = clean_text.split()
+                        if len(words) > 150:
+                            clean_text = " ".join(words[:150]) + "..."
+
+                        if clean_text and not any(clean_text in r["text"] for r in retrieved):
                             retrieved.insert(0, {
-                                "text": g_doc,
+                                "text": f"[PANTANGAN MANDIRI AI]: {clean_text}",
                                 "metadata": g_meta,
                                 "distance": 0.0,
                             })
@@ -612,8 +619,8 @@ Important Rules & Confluences:
    - Posisi BUY dilarang HANYA jika MACD baru saja mengalami Death Cross segar (Fresh Cross 1-2 bar terakhir). Jika MACD masih bearish namun momentum melandai atau ada pola Reversal/Divergence di area Support, sinyal BUY tetap DIIZINKAN.
 2. 5 ADVANCED TECHNICAL PILLARS & CONFLUENCES:
    - Chart Patterns (H&S, Inv H&S, Bull/Bear Flags, Triangles), RSI Divergence (Regular/Hidden), Fibonacci Golden Pocket (0.50-0.618 OTE), Bollinger Squeeze Breakout, dan Sesi ICT Killzone (London/NY) diakui sebagai konfluensi Grade-A bernilai tinggi.
-3. MULTI-TIMEFRAME COUNTER-TREND:
-   - Jika payload memuat peringatan Counter-Trend melawan tren mayor 15m, JANGAN membatalkan sinyal (tetap BUY/SELL jika konfluensi 5m >= 2), namun wajib cantumkan catatan risiko counter-trend pada breakdown.
+3. ANTI COUNTER-TREND HARD VETO:
+   - DILARANG memberikan sinyal transaksi yang melawan arah tren mayor MTF (15m / 1H). Jika terdapat indikasi atau peringatan counter-trend, WAJIB berikan keputusan 'WAIT'.
 4. ACTION BUY / SELL:
    - Berikan BUY jika >= 2 kriteria bullish terkonfirmasi dengan R:R >= 1:1.5.
    - Berikan SELL jika >= 2 kriteria bearish terkonfirmasi dengan R:R >= 1:1.5.

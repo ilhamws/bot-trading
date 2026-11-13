@@ -1223,10 +1223,11 @@ class LiveMarketScanner:
         for b_conf in adv_tech.get("bull_confluences", []):
             bull_matches.append(b_conf)
 
-        # Evaluasi Konfluensi Multi-Timeframe (MTF: 15m)
+        # Evaluasi Konfluensi Multi-Timeframe (1H Macro Compass + 15m Intermediate Setup)
         df_15m = self.fetch_candle_data(symbol, interval="15m") if self.interval != "15m" else df
-        mtf_eval_bull = mtf_engine.evaluate_mtf_confluence(df_15m, candidate_action="BUY")
-        mtf_eval_bear = mtf_engine.evaluate_mtf_confluence(df_15m, candidate_action="SELL")
+        df_1h = self.fetch_candle_data(symbol, interval="1h") if self.interval in ("1m", "3m", "5m", "15m") else None
+        mtf_eval_bull = mtf_engine.evaluate_mtf_confluence(df_15m, df_1h=df_1h, candidate_action="BUY")
+        mtf_eval_bear = mtf_engine.evaluate_mtf_confluence(df_15m, df_1h=df_1h, candidate_action="SELL")
 
         for m_conf in mtf_eval_bull.get("confluences", []):
             bull_matches.append(m_conf)
@@ -1723,20 +1724,58 @@ class LiveMarketScanner:
                 bull_matches = []
                 bear_matches = []
 
-        # Ambang Batas Kualitas: Minimal 2 Konfluensi jika Tren 15m Selaras, atau Minimal 3 Konfluensi jika Bias 15m Netral (Konsolidasi)
-        pattern_name = None
-        min_bull_confluences = 3 if mtf_eval_bull.get("is_neutral_bias") else 2
-        min_bear_confluences = 3 if mtf_eval_bear.get("is_neutral_bias") else 2
+        # ==============================================================================
+        # SISTEM VALIDASI 4 PILAR INDEPENDEN (REGIME GATE & VALUE-TRIGGER HARMONY)
+        # ==============================================================================
+        # Pilar 1: Struktur & Tren Makro (MTF 1H & 15m searah / ADX >= 20 / EMA Stacking)
+        # Pilar 2: Lokasi / Area Nilai (FVG, Order Block, RBS/SBR, Dynamic EMA, Fib OTE, BB Zone)
+        # Pilar 3: Pemicu Candlestick Fisik Steve Nison Terkonfirmasi pada Closed Bar
+        # Pilar 4: Harmoni Momentum (Stochastic Rebound/Cross, MACD Momentum, RSI Divergence)
+        
+        p1_bull = bool(mtf_eval_bull.get("confluences")) or (mtf_eval_bull.get("bias_15m") == "Bullish") or (c_close > cur_ema200)
+        p2_bull = bb_bull_zone or bool(smc_data.get("bull_confluences")) or bool(adv_tech.get("bull_confluences"))
+        p3_bull = has_pure_bull_candle
+        p4_bull = is_stoch_oversold or is_stoch_bullish_cross or (cur_macd > cur_signal) or any("Divergence" in b for b in adv_tech.get("bull_confluences", []))
 
-        if len(bull_matches) >= min_bull_confluences and has_pure_bull_candle:
-            pattern_name = f"BUY ({len(bull_matches)} Konfluensi: {', '.join(bull_matches)})"
-        elif len(bear_matches) >= min_bear_confluences and has_pure_bear_candle:
-            pattern_name = f"SELL ({len(bear_matches)} Konfluensi: {', '.join(bear_matches)})"
+        # Filter Netral Bias: Jika bias 15m Netral (pasar choppy), tolak TF 5m KECUALI pantulan ekstrem VWAP -2σ + Liquidity Sweep
+        is_vwap_extreme_bull = any("VWAP -2σ" in b for b in adv_tech.get("bull_confluences", [])) and any("Liquidity Sweep" in b for b in smc_data.get("bull_confluences", []))
+        if mtf_eval_bull.get("is_neutral_bias") and not is_vwap_extreme_bull:
+            p1_bull = False
+
+        bull_all_pillars = p1_bull and p2_bull and p3_bull and p4_bull
+
+        p1_bear = bool(mtf_eval_bear.get("confluences")) or (mtf_eval_bear.get("bias_15m") == "Bearish") or (c_close < cur_ema200)
+        p2_bear = bb_bear_zone or bool(smc_data.get("bear_confluences")) or bool(adv_tech.get("bear_confluences"))
+        p3_bear = has_pure_bear_candle
+        p4_bear = is_stoch_overbought or is_stoch_bearish_cross or (cur_macd < cur_signal) or any("Divergence" in b for b in adv_tech.get("bear_confluences", []))
+
+        # Filter Netral Bias: Jika bias 15m Netral (pasar choppy), tolak TF 5m KECUALI penolakan ekstrem VWAP +2σ + Liquidity Sweep
+        is_vwap_extreme_bear = any("VWAP +2σ" in b for b in adv_tech.get("bear_confluences", [])) and any("Liquidity Sweep" in b for b in smc_data.get("bear_confluences", []))
+        if mtf_eval_bear.get("is_neutral_bias") and not is_vwap_extreme_bear:
+            p1_bear = False
+
+        bear_all_pillars = p1_bear and p2_bear and p3_bear and p4_bear
+
+        pattern_name = None
+        if bull_matches and bull_all_pillars:
+            pattern_name = f"BUY (4 Pilar Terkonfirmasi: {', '.join(bull_matches)})"
+        elif bear_matches and bear_all_pillars:
+            pattern_name = f"SELL (4 Pilar Terkonfirmasi: {', '.join(bear_matches)})"
         else:
-            if len(bull_matches) >= min_bull_confluences and not has_pure_bull_candle:
-                logger.debug("⏳ [%s] %s | Area Nilai Bullish (%d konfluensi) terdeteksi, namun DITOLAK karena belum ada konfirmasi candlestick reversal Steve Nison.", self.interval, symbol, len(bull_matches))
-            elif len(bear_matches) >= min_bear_confluences and not has_pure_bear_candle:
-                logger.debug("⏳ [%s] %s | Area Nilai Bearish (%d konfluensi) terdeteksi, namun DITOLAK karena belum ada konfirmasi candlestick reversal Steve Nison.", self.interval, symbol, len(bear_matches))
+            if bull_matches and not bull_all_pillars:
+                missing = []
+                if not p1_bull: missing.append("Pilar 1 (Tren MTF 1H/15m / ADX)")
+                if not p2_bull: missing.append("Pilar 2 (Lokasi Nilai SMC/EMA/Fib)")
+                if not p3_bull: missing.append("Pilar 3 (Pemicu Candlestick Steve Nison)")
+                if not p4_bull: missing.append("Pilar 4 (Harmoni Momentum Stoch/MACD)")
+                logger.debug("⏳ [%s] %s | Sinyal BUY ditolak karena belum lulus 4 Pilar: Kurang %s", self.interval, symbol, " & ".join(missing))
+            elif bear_matches and not bear_all_pillars:
+                missing = []
+                if not p1_bear: missing.append("Pilar 1 (Tren MTF 1H/15m / ADX)")
+                if not p2_bear: missing.append("Pilar 2 (Lokasi Nilai SMC/EMA/Fib)")
+                if not p3_bear: missing.append("Pilar 3 (Pemicu Candlestick Steve Nison)")
+                if not p4_bear: missing.append("Pilar 4 (Harmoni Momentum Stoch/MACD)")
+                logger.debug("⏳ [%s] %s | Sinyal SELL ditolak karena belum lulus 4 Pilar: Kurang %s", self.interval, symbol, " & ".join(missing))
 
         rsi_status = "RSI Oversold" if cur_rsi < 30 else ("RSI Overbought" if cur_rsi > 70 else "RSI Netral")
         bb_status = f"BB Upper: {cur_bb_upper:.4f}, BB Lower: {cur_bb_lower:.4f}"

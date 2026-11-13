@@ -269,10 +269,13 @@ class AdvancedTechnicalsEngine:
         return {"bull": bull, "bear": bear, "note": " | ".join(notes) if notes else None}
 
     # =========================================================================
-    # 3. FIBONACCI RETRACEMENT DINAMIS (GOLDEN POCKET 0.50 - 0.618)
+    # 3. FIBONACCI RETRACEMENT DINAMIS KRONOLOGIS (GOLDEN POCKET 0.50 - 0.65)
     # =========================================================================
     def detect_fibonacci_golden_pocket(self, df: pd.DataFrame, cur_idx: int = -1) -> Dict[str, Any]:
-        """Calculate dynamic Fibonacci retracement levels from the latest swing range."""
+        """Calculate chronological dynamic Fibonacci retracement levels from the latest swing range.
+        - Low before High: Upward swing -> evaluates Bullish Retracement to discount (0.50 - 0.65).
+        - High before Low: Downward swing -> evaluates Bearish Retracement to premium (0.50 - 0.65).
+        """
         bull: List[str] = []
         bear: List[str] = []
         note = None
@@ -283,29 +286,36 @@ class AdvancedTechnicalsEngine:
         low = sub_df["Low"] if "Low" in sub_df.columns else sub_df["low"]
         close = df["Close"] if "Close" in df.columns else df["close"]
 
-        swing_high = float(high.max())
-        swing_low = float(low.min())
+        high_idx = high.idxmax()
+        low_idx = low.idxmin()
+        swing_high = float(high.loc[high_idx])
+        swing_low = float(low.loc[low_idx])
         curr_price = float(close.iloc[cur_idx])
 
         diff = swing_high - swing_low
         if diff < 0.0005:
             return {"bull": [], "bear": [], "note": None}
 
-        # Level Retracement dari Swing Low ke Swing High (Bullish Retracement ke Zona Diskon 0.58 - 0.65)
-        fib_upper = swing_high - (0.58 * diff)
-        fib_lower = swing_high - (0.65 * diff)
-        # Golden Pocket Zone: Optimal Trade Entry (OTE) diskon 0.58 - 0.65
-        if fib_lower <= curr_price <= fib_upper:
-            bull.append("Fibonacci Golden Pocket 0.618 (Optimal Trade Entry)")
-            note = f"Golden Pocket 0.58-0.65 Bullish ({fib_lower:.5f} - {fib_upper:.5f})"
+        pos_low = sub_df.index.get_loc(low_idx)
+        pos_high = sub_df.index.get_loc(high_idx)
 
-        # Level Retracement dari Swing High ke Swing Low (Bearish Retracement ke Zona Premium 0.58 - 0.65)
-        bear_fib_lower = swing_low + (0.58 * diff)
-        bear_fib_upper = swing_low + (0.65 * diff)
-        # Golden Pocket Zone untuk Sell: Optimal Bearish Rejection premium 0.58 - 0.65
-        if bear_fib_lower <= curr_price <= bear_fib_upper:
-            bear.append("Fibonacci Golden Pocket 0.618 (Optimal Bearish Rejection)")
-            note = f"Golden Pocket 0.58-0.65 Bearish ({bear_fib_lower:.5f} - {bear_fib_upper:.5f})"
+        # 1. Ayunan Naik: Low terjadi LEBIH DULU daripada High -> Koreksi turun mencari Diskon
+        if pos_low < pos_high:
+            fib_upper = swing_high - (0.50 * diff)
+            fib_lower = swing_high - (0.65 * diff)
+            # Golden Pocket Zone: Optimal Trade Entry (OTE) diskon 0.50 - 0.65
+            if fib_lower <= curr_price <= fib_upper:
+                bull.append("Fibonacci Golden Pocket 0.618 (Optimal Trade Entry)")
+                note = f"Golden Pocket Bullish 0.50-0.65 ({fib_lower:.5f} - {fib_upper:.5f})"
+
+        # 2. Ayunan Turun: High terjadi LEBIH DULU daripada Low -> Koreksi naik mencari Premium
+        elif pos_high < pos_low:
+            bear_fib_lower = swing_low + (0.50 * diff)
+            bear_fib_upper = swing_low + (0.65 * diff)
+            # Golden Pocket Zone untuk Sell: Optimal Bearish Rejection premium 0.50 - 0.65
+            if bear_fib_lower <= curr_price <= bear_fib_upper:
+                bear.append("Fibonacci Golden Pocket 0.618 (Optimal Bearish Rejection)")
+                note = f"Golden Pocket Bearish 0.50-0.65 ({bear_fib_lower:.5f} - {bear_fib_upper:.5f})"
 
         return {"bull": bull, "bear": bear, "note": note}
 
@@ -555,9 +565,23 @@ class AdvancedTechnicalsEngine:
 
         # Typical Price
         tp = (highs + lows + closes) / 3.0
-        roll_period = min(len(df), 50)
-        recent_tp = tp.iloc[-roll_period:]
-        recent_vols = vols.iloc[-roll_period:].replace(0, 1.0)
+
+        # Session-Anchored VWAP: Akumulasi dihitung sejak awal hari perdagangan (00:00 UTC / current date)
+        if isinstance(df.index, pd.DatetimeIndex) and len(df) > 0:
+            current_date = df.index[-1].date()
+            session_mask = df.index.date == current_date
+            session_len = int(session_mask.sum())
+            if session_len >= 12:
+                recent_tp = tp[session_mask]
+                recent_vols = vols[session_mask].replace(0, 1.0)
+            else:
+                roll_period = min(len(df), 50)
+                recent_tp = tp.iloc[-roll_period:]
+                recent_vols = vols.iloc[-roll_period:].replace(0, 1.0)
+        else:
+            roll_period = min(len(df), 50)
+            recent_tp = tp.iloc[-roll_period:]
+            recent_vols = vols.iloc[-roll_period:].replace(0, 1.0)
 
         cum_tp_vol = float((recent_tp * recent_vols).sum())
         cum_vol = float(recent_vols.sum())

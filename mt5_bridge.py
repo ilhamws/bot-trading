@@ -840,10 +840,10 @@ def fix_unprotected_positions(close_if_breached: bool = False) -> None:
 
 
 def check_breakeven_protection() -> None:
-    """Auto-move Stop Loss using Stepped Trailing Stop (Multi-Tier Profit Lock):
-    - Tier 1: Floating >= +5.0 pips -> Lock +0.5 pip (Breakeven / Risk-Free)
-    - Tier 2: Floating >= +8.0 pips -> Lock +4.5 pips (Profit Protection)
-    - Tier 3: Floating >= +12.0 pips -> Lock +8.5 pips (Runner Lock)
+    """Auto-move Stop Loss using Stepped Trailing Stop based on Risk Multiple (R-Multiple):
+    - Tier 1: Floating >= +0.85R -> Lock +0.15R (Breakeven / Risk-Free + Spread Buffer)
+    - Tier 2: Floating >= +1.15R -> Lock +0.60R (Profit Protection)
+    - Tier 3: Floating >= +1.35R -> Lock +1.00R (Runner Profit Lock)
     """
     if not active_positions:
         return
@@ -870,22 +870,34 @@ def check_breakeven_protection() -> None:
         # Hitung floating profit dalam satuan pips
         floating_pips = (cur_bid - pos.price_open) / pip_scale if is_buy else (pos.price_open - cur_ask) / pip_scale
 
-        # Evaluasi Jenjang Trailing Bertingkat (Stepped Trailing Tiers)
+        # Hitung 1R (Initial Risk) proporsional terhadap jarak Stop Loss awal
+        min_floor = get_asset_min_sl_floor(sym, pos.price_open)
+        initial_sl = float(order_data.get("initial_sl") or order_data.get("execution_result", {}).get("sl") or order_data.get("sl") or 0.0)
+        if initial_sl > 0.0 and initial_sl != pos.price_open:
+            one_r_pips = abs(pos.price_open - initial_sl) / pip_scale
+        else:
+            one_r_pips = min_floor / pip_scale
+
+        # Jamin 1R tidak pernah lebih kecil dari lantai minimum aset
+        one_r_pips = max(one_r_pips, min_floor / pip_scale)
+        r_multiple = round(floating_pips / one_r_pips, 4)
+
+        # Evaluasi Jenjang Trailing Bertingkat Berbasis R-Multiple:
         target_pips = 0.0
         tier_label = ""
         icon = "🛡️"
 
-        if floating_pips >= 12.0:
-            target_pips = 8.5
-            tier_label = "TIER 3: RUNNER LOCK (+8.5 PIPS)"
+        if r_multiple >= 1.35:
+            target_pips = round(1.00 * one_r_pips, 1)
+            tier_label = f"TIER 3: RUNNER LOCK (+1.00R / +{target_pips:.1f} PIPS)"
             icon = "💎"
-        elif floating_pips >= 8.0:
-            target_pips = 4.5
-            tier_label = "TIER 2: PROFIT LOCK (+4.5 PIPS)"
+        elif r_multiple >= 1.15:
+            target_pips = round(0.60 * one_r_pips, 1)
+            tier_label = f"TIER 2: PROFIT LOCK (+0.60R / +{target_pips:.1f} PIPS)"
             icon = "💰"
-        elif floating_pips >= 5.0:
-            target_pips = 0.5
-            tier_label = "TIER 1: BREAKEVEN (+0.5 PIP)"
+        elif r_multiple >= 0.85:
+            target_pips = round(0.15 * one_r_pips, 1)
+            tier_label = f"TIER 1: BREAKEVEN (+0.15R / +{target_pips:.1f} PIPS)"
             icon = "🛡️"
 
         if target_pips > 0.0:
@@ -1116,6 +1128,9 @@ def process_queue() -> None:
                     if exec_res.get("success"):
                         ticket = exec_res.get("ticket")
                         if ticket:
+                            order_data["initial_sl"] = exec_res.get("sl")
+                            order_data["initial_tp"] = exec_res.get("tp")
+                            order_data["open_price"] = exec_res.get("open_price")
                             active_positions[ticket] = order_data
                         dest = EXECUTED_DIR / order_file.name
                         with open(dest, "w", encoding="utf-8") as f:
