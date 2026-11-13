@@ -33,18 +33,18 @@ Kesalahan paling sering terjadi adalah **salah mengenali Bullish Engulfing menja
    - **Sinyal**: Sangat kuat untuk BUY.
 
 2. **Inverted Hammer (Pola 1-Candle Pin Bar Reversal)**:
-   - **Konteks Tren**: Wajib muncul di akhir Downtrend.
+   - **Konteks Tren**: Wajib muncul di akhir Downtrend atau pullback support.
    - **Bentuk Fisik**: Sumbu atas panjang ($\ge 2\times$ body dan $\ge 50\%$ range candle).
-   - **Ekor Bawah**: DI BAWAH BODY TIDAK BOLEH ADA GARIS ($lower\_shadow \le spread$ atau $\le 3\%$ range).
-   - **Syarat Mutlak**: Body kecil ($\le 35\%$ range) dan BUKAN pola Bullish Engulfing.
-   - **Sinyal**: BUY Reversal saat tren turun. DILARANG BUY jika muncul di tren naik (karena itu Shooting Star).
+   - **Ekor Bawah**: Sumbu bawah sangat minimalis ($lower\_shadow \le 8\%$ range candle dan $\le 0.35\times$ body).
+   - **Syarat Mutlak**: Body kecil ($\le 35\%$ range), rentang candle valid ($\ge 1.8$ pips pada timeframe 5m), dan BUKAN pola Bullish Engulfing. Sumbu atas panjang membuktikan penolakan harga dasar. Pola 1-candle ini TIDAK mewajibkan harga penutupan menembus 50% midpoint candle sebelumnya.
+   - **Sinyal**: BUY Reversal / Pullback Bounce.
 
 3. **Hammer (Pola 1-Candle Pin Bar Reversal)**:
-   - **Konteks Tren**: Wajib muncul di akhir Downtrend dan area Support.
+   - **Konteks Tren**: Wajib muncul di akhir Downtrend atau pullback ke area Support / EMA 20/50.
    - **Bentuk Fisik**: Sumbu bawah panjang minimal $2.0\times$ panjang body (dan $\ge 50\%$ range candle).
-   - **Ekor Atas**: DI ATAS BODY TIDAK BOLEH ADA GARIS / SHADOW ($upper\_shadow \le spread$ atau $\le 3\%$ range candle).
-   - **Syarat Mutlak**: Body kecil berada di puncak atas candle ($\le 35\%$ range candle), rentang candle signifikan ($\ge 3.5$ pips, bukan noise), dan BUKAN pola Bullish Engulfing.
-   - **Sinyal**: BUY Reversal.
+   - **Ekor Atas**: Sumbu atas sangat minimalis ($upper\_shadow \le 8\%$ range candle dan $\le 0.35\times$ body).
+   - **Syarat Mutlak**: Body kecil berada di puncak atas candle ($\le 35\%$ range candle), rentang candle signifikan ($\ge 1.8$ pips pada TF 5m, bukan noise), dan BUKAN pola Bullish Engulfing. Pola 1-candle ini TIDAK mewajibkan harga penutupan menembus 50% midpoint candle sebelumnya karena penolakan terjadi via ekor bawah panjang.
+   - **Sinyal**: BUY Reversal / Support Bounce.
 
 4. **Piercing Line (Pola 2-Candle)**:
    - **Konteks Tren**: Downtrend.
@@ -104,18 +104,18 @@ Kesalahan paling sering terjadi adalah **salah mengenali Bullish Engulfing menja
    - **Sinyal**: Sangat kuat untuk SELL.
 
 2. **Shooting Star (Pola 1-Candle Pin Bar Reversal)**:
-   - **Konteks Tren**: Wajib muncul di akhir Uptrend.
+   - **Konteks Tren**: Wajib muncul di akhir Uptrend atau retest ke Resistance / EMA 20/50.
    - **Bentuk Fisik**: Sumbu atas panjang ($\ge 2\times$ body dan $\ge 50\%$ range candle).
-   - **Ekor Bawah**: DI BAWAH BODY TIDAK BOLEH ADA GARIS ($lower\_shadow \le spread$ atau $\le 3\%$ range).
-   - **Syarat Mutlak**: Body kecil berada di dasar candle ($\le 35\%$ range) dan BUKAN pola Bearish Engulfing.
-   - **Sinyal**: SELL Reversal saat tren naik. DILARANG SELL jika muncul di tren turun (karena itu Inverted Hammer).
+   - **Ekor Bawah**: Sumbu bawah sangat minimalis ($lower\_shadow \le 8\%$ range candle dan $\le 0.35\times$ body).
+   - **Syarat Mutlak**: Body kecil berada di dasar candle ($\le 35\%$ range), rentang candle valid ($\ge 1.8$ pips pada TF 5m), dan BUKAN pola Bearish Engulfing. Pola 1-candle ini TIDAK mewajibkan harga penutupan menembus 50% midpoint candle sebelumnya karena penolakan terjadi via ekor atas panjang.
+   - **Sinyal**: SELL Reversal / Resistance Rejection.
 
 3. **Hanging Man (Pola 1-Candle Pin Bar Reversal)**:
-   - **Konteks Tren**: Wajib muncul di puncak Uptrend dan area Resistance.
+   - **Konteks Tren**: Wajib muncul di puncak Uptrend atau area Resistance setelah candle hijau penekan.
    - **Bentuk Fisik**: Sumbu bawah panjang ($\ge 2.0\times$ body dan $\ge 50\%$ range candle).
-   - **Ekor Atas**: DI ATAS BODY TIDAK BOLEH ADA GARIS / SHADOW ($upper\_shadow \le spread$ atau $\le 3\%$ range candle).
-   - **Syarat Mutlak**: Body kecil berada di puncak atas candle ($\le 35\%$ range candle), rentang candle signifikan ($\ge 3.5$ pips), dan BUKAN pola Bearish Engulfing.
-   - **Sinyal**: SELL Reversal (sinyal pelemahan momentum buyer).
+   - **Ekor Atas**: Sumbu atas sangat minimalis ($upper\_shadow \le 8\%$ range candle dan $\le 0.35\times$ body).
+   - **Syarat Mutlak**: Body kecil berada di puncak atas candle ($\le 35\%$ range candle), rentang candle signifikan ($\ge 1.8$ pips pada TF 5m), dan BUKAN pola Bearish Engulfing.
+   - **Sinyal**: SELL Reversal (sinyal kelelahan momentum buyer).
 
 4. **Dark Cloud Cover (Pola 2-Candle)**:
    - **Konteks Tren**: Uptrend.

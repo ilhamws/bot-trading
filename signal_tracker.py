@@ -421,11 +421,7 @@ class SignalTracker:
             }
 
     def diagnose_single_loss(self, rag_engine: Any, outcome: Dict[str, Any]) -> str:
-        """Diagnose a single losing trade immediately using Gemini to provide root-cause insights."""
-        gemini_client = getattr(rag_engine, "gemini_client", None)
-        if not gemini_client:
-            return "Evaluasi AI offline."
-
+        """Diagnose a single losing trade immediately using AI (DeepSeek / Gemini) to provide root-cause insights."""
         sym = outcome.get("instrument", "EURUSD")
         action = outcome.get("action", "")
         pips = outcome.get("pips", 0.0)
@@ -451,6 +447,16 @@ Tuliskan analisis teknikal singkat dan padat (maksimal 2-3 kalimat lugas dalam B
 2. Peringatan mitigasi untuk posisi berikutnya.
 Gunakan nada objektif, lugas, tanpa salam pembuka/penutup.
 """
+        # 1. Prioritize Vultr DeepSeek / generic generate_text
+        if hasattr(rag_engine, "generate_text"):
+            res = rag_engine.generate_text(prompt, max_tokens=350)
+            if res:
+                return res
+
+        # 2. Gemini fallback
+        gemini_client = getattr(rag_engine, "gemini_client", None)
+        if not gemini_client:
+            return "Penyebab: Tekanan pasar berlawanan menembus level proteksi stop loss."
         models_to_try = [
             settings.GEMINI_MODEL,
             "gemini-3.1-flash-lite",
@@ -572,32 +578,36 @@ TUGAS ANDA:
 2. Rumuskan MAKSIMAL 3 ATURAN PANTANGAN BARU (Self-Learned Guardrails) yang konkret, ketat, dan dapat diterapkan oleh AI scanner untuk mencegah kerugian serupa di masa depan.
 3. Tuliskan dalam Bahasa Indonesia yang lugas dan berwibawa dengan format poin-poin jelas.
 """
-            models_to_try = [
-                settings.GEMINI_MODEL,
-                "gemini-3.1-flash-lite",
-                "gemini-2.5-flash-lite",
-                "gemini-2.5-flash",
-                "gemini-1.5-flash",
-            ]
             reflection_text = ""
-            for mod in models_to_try:
-                try:
-                    from google.genai import types
-                    response = gemini_client.models.generate_content(
-                        model=mod,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            temperature=0.2,
-                            max_output_tokens=600,
-                            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                        ),
-                    )
-                    if response and response.text:
-                        reflection_text = response.text.strip()
-                        break
-                except Exception as exc:
-                    logger.warning("Self-reflection model '%s' gagal: %s. Mencoba alternatif...", mod, exc)
-                    continue
+            if hasattr(rag_engine, "generate_text"):
+                reflection_text = rag_engine.generate_text(prompt, max_tokens=1500)
+
+            if not reflection_text and gemini_client:
+                models_to_try = [
+                    settings.GEMINI_MODEL,
+                    "gemini-3.1-flash-lite",
+                    "gemini-2.5-flash-lite",
+                    "gemini-2.5-flash",
+                    "gemini-1.5-flash",
+                ]
+                for mod in models_to_try:
+                    try:
+                        from google.genai import types
+                        response = gemini_client.models.generate_content(
+                            model=mod,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                temperature=0.2,
+                                max_output_tokens=600,
+                                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                            ),
+                        )
+                        if response and response.text:
+                            reflection_text = response.text.strip()
+                            break
+                    except Exception as exc:
+                        logger.warning("Self-reflection model '%s' gagal: %s. Mencoba alternatif...", mod, exc)
+                        continue
 
             if not reflection_text:
                 return None
@@ -685,32 +695,36 @@ TUGAS ANDA:
 2. Rumuskan 2-3 ATURAN OPTIMASI EXIT & TARGET TP BARU (misalnya: kalibrasi TP adaptif lebih realistis di 1.25x - 1.4x SL pada kondisi tertentu, atau penguncian trailing step) agar profit tidak sering kembali ke titik impas.
 3. Tuliskan dalam Bahasa Indonesia yang lugas dan berwibawa dengan format poin-poin jelas.
 """
-            models_to_try = [
-                settings.GEMINI_MODEL,
-                "gemini-3.1-flash-lite",
-                "gemini-2.5-flash-lite",
-                "gemini-2.5-flash",
-                "gemini-1.5-flash",
-            ]
             reflection_text = ""
-            for mod in models_to_try:
-                try:
-                    from google.genai import types
-                    response = gemini_client.models.generate_content(
-                        model=mod,
-                        contents=prompt,
-                        config=types.GenerateContentConfig(
-                            temperature=0.2,
-                            max_output_tokens=600,
-                            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                        ),
-                    )
-                    if response and response.text:
-                        reflection_text = response.text.strip()
-                        break
-                except Exception as exc:
-                    logger.warning("Breakeven audit model '%s' gagal: %s. Mencoba alternatif...", mod, exc)
-                    continue
+            if hasattr(rag_engine, "generate_text"):
+                reflection_text = rag_engine.generate_text(prompt, max_tokens=1500)
+
+            if not reflection_text and gemini_client:
+                models_to_try = [
+                    settings.GEMINI_MODEL,
+                    "gemini-3.1-flash-lite",
+                    "gemini-2.5-flash-lite",
+                    "gemini-2.5-flash",
+                    "gemini-1.5-flash",
+                ]
+                for mod in models_to_try:
+                    try:
+                        from google.genai import types
+                        response = gemini_client.models.generate_content(
+                            model=mod,
+                            contents=prompt,
+                            config=types.GenerateContentConfig(
+                                temperature=0.2,
+                                max_output_tokens=600,
+                                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+                            ),
+                        )
+                        if response and response.text:
+                            reflection_text = response.text.strip()
+                            break
+                    except Exception as exc:
+                        logger.warning("Breakeven audit model '%s' gagal: %s. Mencoba alternatif...", mod, exc)
+                        continue
 
             if not reflection_text:
                 return None

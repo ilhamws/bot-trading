@@ -21,6 +21,10 @@ class Settings(BaseSettings):
 
     # API Keys
     GEMINI_API_KEY: str = Field(default="", description="Google Gemini API Key")
+    VULTR_API_KEY: str = Field(default="", description="Vultr Serverless Inference API Key")
+    VULTR_MODEL: str = Field(default="deepseek-v4.1-flash-1017", description="Vultr Model ID")
+    VULTR_BASE_URL: str = Field(default="https://api.vultrinference.com/v1", description="Vultr Inference Base URL")
+    AI_PROVIDER: str = Field(default="vultr", description="Primary AI provider: vultr or gemini")
     TELEGRAM_BOT_TOKEN: str = Field(default="", description="Telegram Bot Token from @BotFather")
     TELEGRAM_CHAT_ID: str = Field(default="", description="Target Telegram Chat or Channel ID")
 

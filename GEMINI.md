@@ -21,7 +21,7 @@
 * **Sisi Analisis (WSL Ubuntu):**
   * Script: `live_market_scanner.py`
   * Perintah Jalan: `./.venv/bin/python live_market_scanner.py --symbols EURUSD --interval 5m`
-  * Komponen: TradingView Real-time Data Feed, ChromaDB Vector RAG (`knowledge_db/`), Google Gemini AI (`gemini-flash-lite-latest`), Stochastic Oscillator (8, 3, 3), SmartMoneyConcepts Engine (`smc_engine.py`), Multi-Timeframe Evaluator (`mtf_engine.py`), News Filter, dan Telegram Notifier (`telegram_notifier.py`).
+  * Komponen: TradingView Real-time Data Feed, ChromaDB Vector RAG (`knowledge_db/`), Vultr Serverless Inference AI (`deepseek-v4.1-flash-1017`) & Google Gemini Fallback, Stochastic Oscillator (8, 3, 3), SmartMoneyConcepts Engine (`smc_engine.py`), Multi-Timeframe Evaluator (`mtf_engine.py`), News Filter, dan Telegram Notifier (`telegram_notifier.py`).
   * Antrean Order: Menulis payload order JSON ke `orders_queue/pending/`.
 * **Sisi Eksekusi (Windows 11 Native):**
   * Script: `mt5_bridge.py`

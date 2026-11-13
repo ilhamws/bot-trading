@@ -123,18 +123,19 @@ class SMCEngine:
             if lvl > curr_price:
                 levels.append(lvl)
 
-        # 1. Fractal Swing Highs (3-bar fractal over last 40 bars)
+        # 1. Fractal Swing Highs (Simetris: 3 bar kiri, 2 bar kanan over last 40 bars)
         highs = df_norm["high"]
         n = len(df_norm)
         end_idx = n if cur_idx == -1 else (cur_idx if cur_idx >= 0 else n + cur_idx)
         start_idx = max(3, end_idx - 40)
 
-        for i in range(start_idx, end_idx - 1):
+        for i in range(start_idx, end_idx - 2):
             if (
                 highs.iloc[i] > highs.iloc[i - 1]
                 and highs.iloc[i] > highs.iloc[i - 2]
                 and highs.iloc[i] > highs.iloc[i - 3]
                 and highs.iloc[i] >= highs.iloc[i + 1]
+                and highs.iloc[i] >= highs.iloc[i + 2]
             ):
                 lvl = float(highs.iloc[i])
                 if lvl > curr_price:
@@ -173,18 +174,19 @@ class SMCEngine:
             if lvl < curr_price:
                 levels.append(lvl)
 
-        # 1. Fractal Swing Lows (3-bar fractal over last 40 bars)
+        # 1. Fractal Swing Lows (Simetris: 3 bar kiri, 2 bar kanan over last 40 bars)
         lows = df_norm["low"]
         n = len(df_norm)
         end_idx = n if cur_idx == -1 else (cur_idx if cur_idx >= 0 else n + cur_idx)
         start_idx = max(3, end_idx - 40)
 
-        for i in range(start_idx, end_idx - 1):
+        for i in range(start_idx, end_idx - 2):
             if (
                 lows.iloc[i] < lows.iloc[i - 1]
                 and lows.iloc[i] < lows.iloc[i - 2]
                 and lows.iloc[i] < lows.iloc[i - 3]
                 and lows.iloc[i] <= lows.iloc[i + 1]
+                and lows.iloc[i] <= lows.iloc[i + 2]
             ):
                 lvl = float(lows.iloc[i])
                 if lvl < curr_price:

@@ -51,13 +51,16 @@ Divergensi terjadi ketika pergerakan grafik harga bertolak belakang dengan perge
 
 ---
 
-## 3. FIBONACCI RETRACEMENT DINAMIS (GOLDEN POCKET 0.50 - 0.618)
+## 3. FIBONACCI RETRACEMENT DINAMIS (GOLDEN POCKET 0.50 - 0.65)
 
 1. **Konsep Golden Pocket:**
-   - Berdasarkan swing impulsif terkini (High ke Low atau Low ke High), area antara rasio Fibonacci 50.0% (0.500) dan 61.8% (0.618) merupakan area keseimbangan harga institusional paling dicari (*Optimal Trade Entry / OTE*).
-2. **Konfluensi Entry:**
-   - BUY Setup: Ketika harga retrace ke Golden Pocket (0.50 - 0.618) dan bersinggungan dengan Bullish Order Block, FVG, atau Support Bollinger.
-   - SELL Setup: Ketika harga rally ke Golden Pocket (0.50 - 0.618) dan bersinggungan dengan Bearish Order Block, FVG, atau Resistance Bollinger.
+   - Berdasarkan swing impulsif terkini (High ke Low atau Low ke High), area antara rasio Fibonacci 50.0% (0.500) dan 65.0% (0.650) merupakan area keseimbangan harga institusional paling dicari (*Optimal Trade Entry / OTE*).
+2. **Kronologi Swing (Urutan Waktu Wajib):**
+   - **Bullish Retracement (BUY):** Swing Low terjadi LEBIH DULU daripada Swing High (`pos_low < pos_high`), lalu harga pullback turun mencari diskon di area 0.50 - 0.65.
+   - **Bearish Retracement (SELL):** Swing High terjadi LEBIH DULU daripada Swing Low (`pos_high < pos_low`), lalu harga koreksi naik mencari premium di area 0.50 - 0.65.
+3. **Konfluensi Entry:**
+   - BUY Setup: Ketika harga retrace ke Golden Pocket (0.50 - 0.65) dan bersinggungan dengan Bullish Order Block, FVG, atau Support EMA/Bollinger.
+   - SELL Setup: Ketika harga rally ke Golden Pocket (0.50 - 0.65) dan bersinggungan dengan Bearish Order Block, FVG, atau Resistance EMA/Bollinger.
 
 ---
 
@@ -82,3 +85,54 @@ Forex dan Komoditas bergerak dengan probabilitas tren tertinggi saat sesi likuid
 2. **Breakout Expansion:**
    - Candle penembusan pertama yang ditutup di luar pita Bollinger setelah fase squeeze menandakan awal ledakan tren baru (*volatility expansion*).
    - Diikuti oleh pembukaan pita atas dan pita bawah secara serentak ke arah berlawanan (*opening the jaws*).
+
+---
+
+## 6. DYNAMIC EMA 20/50 PULLBACK & TREND BOUNCE (ZONA NILAI KELANJUTAN TREN)
+
+1. **Definisi & Fungsi:**
+   - EMA 20 dan EMA 50 berfungsi sebagai *Dynamic Support* pada tren naik dan *Dynamic Resistance* pada tren turun.
+   - Bertindak sebagai **Area Nilai / Lokasi (Where)**, bukan pemicu entri mandiri tanpa konfirmasi candle.
+2. **Bullish Dynamic EMA Pullback (BUY):**
+   - Terjadi saat tren 15m/1H Bullish dan harga melakukan koreksi sehat menyentuh EMA 20 atau EMA 50.
+   - Syarat Entri: Wajib disertai formasi candlestick rejection (Hammer, Bullish Engulfing, Tweezer Bottom) yang ditutup hijau di atas garis EMA.
+3. **Bearish Dynamic EMA Pullback (SELL):**
+   - Terjadi saat tren 15m/1H Bearish dan harga melakukan koreksi naik menyentuh EMA 20 atau EMA 50.
+   - Syarat Entri: Wajib disertai formasi candlestick rejection (Shooting Star, Bearish Engulfing, Tweezer Top) yang ditutup merah di bawah garis EMA.
+
+---
+
+## 7. ROLE REVERSAL (RBS / SBR RETEST)
+
+1. **Resistance Became Support (RBS - BUY):**
+   - Area resistance horizontal yang berhasil ditembus (*breakout*) oleh impulsive candle beralih fungsi menjadi support baru.
+   - Entri BUY dieksekusi saat harga melakukan retest ke level breakout tersebut dengan konfirmasi rejection candle.
+2. **Support Became Resistance (SBR - SELL):**
+   - Area support horizontal yang berhasil ditembus (*breakdown*) beralih fungsi menjadi resistance baru.
+   - Entri SELL dieksekusi saat harga melakukan retest ke level breakdown tersebut dengan konfirmasi rejection candle.
+
+---
+
+## 8. INSTITUTIONAL VWAP & STANDARD DEVIATION BANDS (±2 SIGMA)
+
+1. **Session-Anchored VWAP Baseline:**
+   - Volume-Weighted Average Price dihitung sejak awal hari perdagangan (reset harian sesi Asia).
+   - Berfungsi sebagai garis ekuilibrium institusional (*fair value baseline*).
+2. **Trend Continuation Bounce:**
+   - Memantul di garis VWAP Baseline searah tren mayor adalah setup continuasi dengan rasio R:R sangat tinggi.
+3. **Statistical Mean Reversion (±2σ Bands):**
+   - **VWAP -2σ (Oversold Extreme):** Pantulan di pita -2σ yang disertai Liquidity Sweep sah untuk BUY Mean-Reversion.
+   - **VWAP +2σ (Overbought Extreme):** Penolakan di pita +2σ yang disertai Liquidity Sweep sah untuk SELL Mean-Reversion.
+
+---
+
+## 9. HARMONI MOMENTUM HISTOGRAM MACD (PULLBACK CONTINUATION RULE)
+
+1. **Karakteristik Lagging MACD saat Pullback:**
+   - Saat harga melakukan koreksi 3-4 bar dalam tren naik 15m yang kuat, garis MACD wajar berada di bawah Signal line (*Death Cross sementara*).
+2. **Harmoni Histogram Menanjak (`cur_hist > prev_hist`):**
+   - Jika MACD Histogram mulai memendek atau menanjak naik ke atas, ini mengindikasikan tekanan jual korektif telah habis (*seller exhaustion*).
+   - **Aturan Eksekusi:** Entri BUY diperbolehkan meskipun garis MACD masih di bawah Signal line, asalkan didukung:
+     - Tren 15m/1H searah Bullish.
+     - Candlestick rejection Steve Nison terkonfirmasi pada closed bar.
+     - Histogram MACD menanjak naik (`cur_hist > prev_hist`).

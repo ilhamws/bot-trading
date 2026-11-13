@@ -28,9 +28,19 @@ Pasar keuangan bergerak dengan volatilitas dinamis yang berubah setiap saat. Men
 
 ---
 
-## 4. ATURAN TRAILING STOP & BREAKEVEN (BEP)
-1. **Proteksi Breakeven:**
-   - Ketika harga telah bergerak mencapai keuntungan sebesar $1.0 \times \text{Risk Distance}$ (R:R 1:1), Stop Loss **WAJIB DIGESER** ke titik Entry Price + 1 pip (Breakeven Point).
-   - Menjamin bahwa trade yang sudah berjalan dengan benar tidak boleh berakhir menjadi kerugian modal.
-2. **Trailing Stop Berbasis Struktur:**
-   - Geser Stop Loss mengikuti pembentukan Higher Low baru (pada posisi BUY) atau Lower High baru (pada posisi SELL) setiap kali terjadi Break of Structure (BOS).
+## 4. ATURAN STEPPED TRAILING STOP & BREAKEVEN BERBASIS R-MULTIPLE
+
+Untuk mencegah Stop Loss tersenggol terlalu cepat oleh noise pasar namun tetap mengamankan profit mengembang secara sistematis, proteksi Stop Loss dijalankan melalui **Stepped Trailing Stop Berbasis R-Multiple** ($1\text{R} = |\text{Entry Price} - \text{Initial SL}|$):
+
+1. **Tier 1 — Proteksi Breakeven (+0.85R Floating):**
+   - Ketika *floating profit* mencapai $\ge +0.85\text{R}$ (misal +5.1 pips pada SL 6.0 pips di EURUSD, atau +29.8 pips di Gold):
+   - Stop Loss otomatis digeser ke **Entry $+0.15\text{R}$**.
+   - Posisi resmi bebas risiko (*risk-free*) dan biaya spread/komisi terkunci aman.
+2. **Tier 2 — Kunci Profit Menengah (+1.15R Floating):**
+   - Ketika *floating profit* mencapai $\ge +1.15\text{R}$:
+   - Stop Loss otomatis digeser ke **Entry $+0.60\text{R}$**.
+   - Mengunci lebih dari separuh target keuntungan saat harga mendekati TP penuh.
+3. **Tier 3 — Kunci Runner Ekspansi Tren (+1.35R Floating):**
+   - Ketika *floating profit* mencapai $\ge +1.35\text{R}$:
+   - Stop Loss otomatis digeser ke **Entry $+1.00\text{R}$**.
+   - Menjamin perolehan profit minimal 1R penuh saat harga bersiap menyentuh Take Profit akhir 1.5R.

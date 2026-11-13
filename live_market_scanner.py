@@ -661,16 +661,70 @@ class LiveMarketScanner:
         spread_tol *= scale
         min_candle_range *= scale
 
+        # ==============================================================================
+        # EVALUASI AWAL SMC, ADVANCED TECHNICALS, & MULTI-TIMEFRAME (1H & 15M)
+        # Dilakukan sebelum klasifikasi pola candlestick agar zona support/resistance
+        # mencakup Dynamic EMA 20/50, Fair Value Gap (FVG), Order Block, RBS/SBR, dan VWAP.
+        # ==============================================================================
+        smc_data = smc_engine.analyze(df, cur_idx=cur_idx, symbol=symbol)
+        adv_tech = advanced_technicals.analyze(
+            df=df,
+            rsi_series=rsi_series,
+            bb_upper=bb_upper,
+            bb_lower=bb_lower,
+            bb_basis=bb_basis,
+            ema20_series=ema20_series,
+            ema50_series=ema50_series,
+            cur_ema200=cur_ema200,
+            cur_idx=cur_idx,
+        )
+
+        df_15m = self.fetch_candle_data(symbol, interval="15m") if self.interval != "15m" else df
+        df_1h = self.fetch_candle_data(symbol, interval="1h") if self.interval in ("1m", "3m", "5m", "15m") else None
+        mtf_eval_bull = mtf_engine.evaluate_mtf_confluence(df_15m, df_1h=df_1h, candidate_action="BUY")
+        mtf_eval_bear = mtf_engine.evaluate_mtf_confluence(df_15m, df_1h=df_1h, candidate_action="SELL")
+
+        is_15m_bull = (mtf_eval_bull.get("bias_15m") == "Bullish") or (c_close > cur_ema200 and mtf_eval_bull.get("is_allowed"))
+        is_15m_bear = (mtf_eval_bear.get("bias_15m") == "Bearish") or (c_close < cur_ema200 and mtf_eval_bear.get("is_allowed"))
+
         # Zone check for Reversal patterns:
         # Bullish Reversal Area (Support zone: lower half of Bollinger Bands or testing recent swing low)
         bb_lower_zone = (min(c_low, p_low) <= (cur_bb_basis + cur_bb_lower) / 2) or (min(c_low, p_low) <= cur_bb_lower + spread_tol)
         swing_low_test = (min(c_low, p_low) <= min(p2_low, p3_low) + spread_tol) if has_5_bars else bb_lower_zone
-        is_support_zone = bb_lower_zone or swing_low_test
+        
+        # Dynamic EMA 20/50 Support Test & Institutional Value Areas (FVG / OB / RBS / VWAP)
+        ema_support_test = (
+            (c_low <= cur_ema20 + spread_tol and c_close >= cur_ema20 - spread_tol) or
+            (c_low <= cur_ema50 + spread_tol and c_close >= cur_ema50 - spread_tol)
+        )
+        smc_bull_zone = bool(smc_data.get("bull_confluences"))
+        adv_bull_zone = any(k in adv_tech.get("bull_confluences", []) for k in (
+            "Role Reversal RBS (Resistance Became Support Retest)",
+            "Bullish Dynamic EMA Pullback (EMA 20/50 Trend Bounce)",
+            "Institutional VWAP Baseline Trend Bounce (Bullish)",
+            "Institutional VWAP -2σ Mean Reversion (Oversold Bounce)",
+            "Bullish Breaker Block Retest (Failed Supply Flip)"
+        ))
+        is_support_zone = bb_lower_zone or swing_low_test or ema_support_test or smc_bull_zone or adv_bull_zone
 
         # Bearish Reversal Area (Resistance zone: upper half of Bollinger Bands or testing recent swing high)
         bb_upper_zone = (max(c_high, p_high) >= (cur_bb_basis + cur_bb_upper) / 2) or (max(c_high, p_high) >= cur_bb_upper - spread_tol)
         swing_high_test = (max(c_high, p_high) >= max(p2_high, p3_high) - spread_tol) if has_5_bars else bb_upper_zone
-        is_resistance_zone = bb_upper_zone or swing_high_test
+
+        # Dynamic EMA 20/50 Resistance Test & Institutional Value Areas (FVG / OB / SBR / VWAP)
+        ema_resistance_test = (
+            (c_high >= cur_ema20 - spread_tol and c_close <= cur_ema20 + spread_tol) or
+            (c_high >= cur_ema50 - spread_tol and c_close <= cur_ema50 + spread_tol)
+        )
+        smc_bear_zone = bool(smc_data.get("bear_confluences"))
+        adv_bear_zone = any(k in adv_tech.get("bear_confluences", []) for k in (
+            "Role Reversal SBR (Support Became Resistance Retest)",
+            "Bearish Dynamic EMA Pullback (EMA 20/50 Trend Bounce)",
+            "Institutional VWAP Baseline Trend Bounce (Bearish)",
+            "Institutional VWAP +2σ Mean Reversion (Overbought Rejection)",
+            "Bearish Breaker Block Retest (Failed Demand Flip)"
+        ))
+        is_resistance_zone = bb_upper_zone or swing_high_test or ema_resistance_test or smc_bear_zone or adv_bear_zone
 
         # Micro-trend direction checks over recent candles:
         # If market has been forming consecutive higher lows and higher closes over 3-4 bars, it is actively rising (rally)
@@ -688,22 +742,22 @@ class LiveMarketScanner:
         )
 
         # Konteks Pelemahan/Pullback untuk Pola Reversal Bullish:
-        # Wajib: Ada pelemahan harga (minor drop), berada di area support/swing low, RSI <= 55.0,
-        # dan BUKAN di tengah rally/uptrend aktif yang sudah berjalan!
-        is_minor_downtrend = (p_close < p_open) or (p_close < p2_close) or (c_low < p_low) or (c_close < cur_ema20)
+        # Batas RSI disesuaikan hingga 60.0 jika tren 15m/1H Bullish (pullback sehat dalam uptrend)
+        max_bull_rsi = 60.0 if is_15m_bull else 55.0
+        is_minor_downtrend = (p_close < p_open) or (p_close < p2_close) or (c_low < p_low) or (c_close < cur_ema20) or ema_support_test or smc_bull_zone
         is_downtrend_context = (
-            (cur_rsi <= 55.0) and
+            (cur_rsi <= max_bull_rsi) and
             not is_actively_rising and
             is_support_zone and
             is_minor_downtrend
         )
 
         # Konteks Kenaikan/Pullback untuk Pola Reversal Bearish:
-        # Wajib: Ada kenaikan harga (minor rally), berada di area resistance/swing high, RSI >= 42.0,
-        # dan BUKAN di tengah sell-off/downtrend aktif yang sedang jatuh!
-        is_minor_uptrend = (p_close > p_open) or (p_close > p2_close) or (c_high > p_high) or (c_close > cur_ema20)
+        # Batas RSI disesuaikan hingga 40.0 jika tren 15m/1H Bearish (pullback sehat dalam downtrend)
+        min_bear_rsi = 40.0 if is_15m_bear else 42.0
+        is_minor_uptrend = (p_close > p_open) or (p_close > p2_close) or (c_high > p_high) or (c_close > cur_ema20) or ema_resistance_test or smc_bear_zone
         is_uptrend_context = (
-            (cur_rsi >= 42.0) and
+            (cur_rsi >= min_bear_rsi) and
             not is_actively_falling and
             is_resistance_zone and
             is_minor_uptrend
@@ -768,12 +822,11 @@ class LiveMarketScanner:
             (body_size > 0) and
             (body_size <= 0.35 * c_range) and
             (c_range >= min_candle_range) and
-            (cur_rsi <= 50.0) and
-            (c_low <= (cur_bb_basis + cur_bb_lower) / 2 or c_close <= cur_bb_basis) and
+            (cur_rsi <= (60.0 if is_15m_bull else 50.0)) and
+            (c_low <= (cur_bb_basis + cur_bb_lower) / 2 or c_close <= cur_bb_basis or ema_support_test or smc_bull_zone or is_15m_bull) and
             not is_bullish_engulfing
         )
 
-        # 3. Inverted Hammer (Formasi 1-Candle Pin Bar Reversal Bullish):
         # 3. Inverted Hammer (Formasi 1-Candle Pin Bar Reversal Bullish):
         #    HANYA muncul pada Downtrend di area Support setelah candle merah penekan (p_close < p_open).
         #    Syarat Mutlak: Body kecil di dasar (<= 35% range), sumbu atas panjang (>= 55% range dan >= 2x body),
@@ -790,8 +843,8 @@ class LiveMarketScanner:
             (body_size <= 0.35 * c_range) and
             (max(c_open, c_close) - c_low <= 0.40 * c_range) and
             (c_range >= min_candle_range) and
-            (cur_rsi <= 50.0) and
-            (c_low <= (cur_bb_basis + cur_bb_lower) / 2 or c_close <= cur_bb_basis) and
+            (cur_rsi <= (60.0 if is_15m_bull else 50.0)) and
+            (c_low <= (cur_bb_basis + cur_bb_lower) / 2 or c_close <= cur_bb_basis or ema_support_test or smc_bull_zone or is_15m_bull) and
             not is_bullish_engulfing
         )
 
@@ -979,8 +1032,8 @@ class LiveMarketScanner:
             (body_size <= 0.35 * c_range) and
             (max(c_open, c_close) - c_low <= 0.40 * c_range) and
             (c_range >= min_candle_range) and
-            (cur_rsi >= 50.0) and
-            (c_high >= (cur_bb_basis + cur_bb_upper) / 2 or c_close >= cur_bb_basis) and
+            (cur_rsi >= (40.0 if is_15m_bear else 50.0)) and
+            (c_high >= (cur_bb_basis + cur_bb_upper) / 2 or c_close >= cur_bb_basis or ema_resistance_test or smc_bear_zone or is_15m_bear) and
             not is_bearish_engulfing
         )
 
@@ -1004,8 +1057,8 @@ class LiveMarketScanner:
             (body_size <= 0.35 * c_range) and
             (min(c_open, c_close) - c_low >= 0.55 * c_range) and
             (c_range >= min_candle_range) and
-            (cur_rsi >= 55.0) and
-            (c_high >= (cur_bb_basis + cur_bb_upper) / 2 or c_close >= cur_bb_basis) and
+            (cur_rsi >= (42.0 if is_15m_bear else 55.0)) and
+            (c_high >= (cur_bb_basis + cur_bb_upper) / 2 or c_close >= cur_bb_basis or ema_resistance_test or smc_bear_zone or is_15m_bear) and
             not is_bearish_engulfing
         )
 
@@ -1204,31 +1257,14 @@ class LiveMarketScanner:
             bull_matches.append("Stochastic (8,3,3) Oversold / Bullish Cross")
 
         # Konfluensi Institusional Smart Money Concepts (SMC) & ICT
-        smc_data = smc_engine.analyze(df, cur_idx=cur_idx, symbol=symbol)
         for b_conf in smc_data.get("bull_confluences", []):
             bull_matches.append(b_conf)
 
         # 8 Pilar Teknikal Lanjutan (Chart Patterns, RSI Divergence, Fibonacci, Killzones, BB Squeeze, EMA Pullback, RBS/SBR, VWAP)
-        adv_tech = advanced_technicals.analyze(
-            df=df,
-            rsi_series=rsi_series,
-            bb_upper=bb_upper,
-            bb_lower=bb_lower,
-            bb_basis=bb_basis,
-            ema20_series=ema20_series,
-            ema50_series=ema50_series,
-            cur_ema200=cur_ema200,
-            cur_idx=cur_idx,
-        )
         for b_conf in adv_tech.get("bull_confluences", []):
             bull_matches.append(b_conf)
 
         # Evaluasi Konfluensi Multi-Timeframe (1H Macro Compass + 15m Intermediate Setup)
-        df_15m = self.fetch_candle_data(symbol, interval="15m") if self.interval != "15m" else df
-        df_1h = self.fetch_candle_data(symbol, interval="1h") if self.interval in ("1m", "3m", "5m", "15m") else None
-        mtf_eval_bull = mtf_engine.evaluate_mtf_confluence(df_15m, df_1h=df_1h, candidate_action="BUY")
-        mtf_eval_bear = mtf_engine.evaluate_mtf_confluence(df_15m, df_1h=df_1h, candidate_action="SELL")
-
         for m_conf in mtf_eval_bull.get("confluences", []):
             bull_matches.append(m_conf)
 
@@ -1339,11 +1375,7 @@ class LiveMarketScanner:
             "Piercing Line", "Tweezer Bottom", "Bullish Harami", "Bullish Abandoned Baby",
             "Three Inside Up", "Three White Soldiers", "Bullish Kicker",
             "Double Bottom (W-Pattern)", "Inverse Head and Shoulders Reversal",
-            "Bullish FVG Retest (Unmitigated)", "Institutional Bullish Order Block",
-            "Bullish CHoCH (Structure Shift)", "Sell-side Liquidity Sweep (SSL)",
-            "Role Reversal RBS (Resistance Became Support Retest)",
-            "Bullish Breaker Block Retest (Failed Supply Flip)",
-            "Institutional VWAP -2σ Mean Reversion (Oversold Bounce)"
+            "Bullish CHoCH (Structure Shift)", "Sell-side Liquidity Sweep (SSL)"
         }
         # Pola Candlestick & SMC Kelanjutan Tren Bullish (Breakout Continuation BUY)
         BULLISH_CONTINUATION_PATTERNS = {
@@ -1370,11 +1402,7 @@ class LiveMarketScanner:
             "Bearish Engulfing", "Shooting Star", "Hanging Man", "Evening Star", "Dark Cloud Cover",
             "Tweezer Top", "Bearish Harami", "Bearish Abandoned Baby", "Three Inside Down",
             "Double Top (M-Pattern)", "Head and Shoulders Reversal",
-            "Bearish FVG Retest (Unmitigated)", "Institutional Bearish Order Block",
-            "Bearish CHoCH (Structure Shift)", "Buy-side Liquidity Sweep (BSL)",
-            "Role Reversal SBR (Support Became Resistance Retest)",
-            "Bearish Breaker Block Retest (Failed Demand Flip)",
-            "Institutional VWAP +2σ Mean Reversion (Overbought Rejection)"
+            "Bearish CHoCH (Structure Shift)", "Buy-side Liquidity Sweep (BSL)"
         }
 
         # SOP STEVE NISON: Pemicu Entri Fisik Wajib Berupa Pola Candlestick Murni atau Chart Pattern Terkonfirmasi
@@ -1470,22 +1498,33 @@ class LiveMarketScanner:
 
         # B. Anti-Steep EMA Uptrend Veto: Dilarang SELL jika EMA20 & EMA50 keduanya menanjak tajam
         elif (cur_ema20 > prev_ema20 and cur_ema50 > prev_ema50 and c_close > cur_ema50) and self.interval in ("1m", "3m", "5m"):
-            logger.info("🚫 [EMA SLOPE VETO] Sinyal SELL dibatalkan karena tren EMA20 & EMA50 menanjak tajam ke atas (Bullish Slope).")
-            bear_matches = []
+            is_steep_slope = abs(cur_ema50 - prev_ema50) >= 0.20 * smc_data.get("atr_val", 0.001)
+            if is_steep_slope and not is_15m_bear:
+                logger.info("🚫 [EMA SLOPE VETO] Sinyal SELL dibatalkan karena tren EMA20 & EMA50 menanjak tajam ke atas (Bullish Slope).")
+                bear_matches = []
 
         # C. Reversal Confirmation Veto: Pola pembalikan wajib memiliki bar konfirmasi merah solid
-        elif has_bear_reversal and (c_close > c_open or c_close > (p_open + p_close) / 2):
-            logger.info("🚫 [REVERSAL VETO] Sinyal SELL dibatalkan karena bar penutupan tidak mengonfirmasi rejeksi bearish solid.")
-            bear_matches = []
+        elif has_bear_reversal:
+            is_pin_bar = is_shooting_star or is_hanging_man
+            if is_pin_bar:
+                if c_close > c_open and upper_shadow < 1.5 * body_size:
+                    logger.info("🚫 [REVERSAL VETO] Sinyal SELL dibatalkan karena Pin Bar tidak ditutup dengan penolakan bearish yang memadai.")
+                    bear_matches = []
+            elif (c_close > c_open or c_close > (p_open + p_close) / 2):
+                logger.info("🚫 [REVERSAL VETO] Sinyal SELL dibatalkan karena bar penutupan tidak mengonfirmasi rejeksi bearish solid.")
+                bear_matches = []
 
         # D. Anti-Rocket & Momentum Collision Veto:
-        # Dilarang SELL jika MACD sedang Golden Cross aktif (Bullish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup merah dengan sumbu penolakan atas nyata, bearish engulfing, atau dorongan momentum bearish solid
+        # Dilarang SELL jika MACD sedang Golden Cross aktif (Bullish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup merah dengan sumbu penolakan atas nyata, bearish engulfing, dorongan momentum bearish solid, atau histogram MACD melemah saat tren 15m Bearish
         elif cur_macd > cur_signal:
+            cur_macd_hist = cur_macd - cur_signal
+            prev_macd_hist = prev_macd - prev_signal
             is_valid_bear_rejection = (
                 has_pure_bear_candle and c_close < c_open and (
                     upper_shadow >= 0.18 * c_range or
                     is_bearish_engulfing or
-                    body_size >= 0.40 * c_range
+                    body_size >= 0.40 * c_range or
+                    (cur_macd_hist < prev_macd_hist and is_15m_bear)
                 )
             )
             if not is_valid_bear_rejection:
@@ -1524,22 +1563,33 @@ class LiveMarketScanner:
 
         # B. Anti-Steep EMA Downtrend Veto: Dilarang BUY jika EMA20 & EMA50 keduanya menukik tajam
         elif (cur_ema20 < prev_ema20 and cur_ema50 < prev_ema50 and c_close < cur_ema50) and self.interval in ("1m", "3m", "5m"):
-            logger.info("🚫 [EMA SLOPE VETO] Sinyal BUY dibatalkan karena tren EMA20 & EMA50 menukik tajam ke bawah (Bearish Slope).")
-            bull_matches = []
+            is_steep_slope = abs(cur_ema50 - prev_ema50) >= 0.20 * smc_data.get("atr_val", 0.001)
+            if is_steep_slope and not is_15m_bull:
+                logger.info("🚫 [EMA SLOPE VETO] Sinyal BUY dibatalkan karena tren EMA20 & EMA50 menukik tajam ke bawah (Bearish Slope).")
+                bull_matches = []
 
         # C. Reversal Confirmation Veto: Pola pembalikan wajib memiliki bar konfirmasi hijau solid
-        elif has_bull_reversal and (c_close < c_open or c_close < (p_open + p_close) / 2):
-            logger.info("🚫 [REVERSAL VETO] Sinyal BUY dibatalkan karena bar penutupan tidak mengonfirmasi rejeksi bullish solid.")
-            bull_matches = []
+        elif has_bull_reversal:
+            is_pin_bar = is_hammer or is_inverted_hammer
+            if is_pin_bar:
+                if c_close < c_open and lower_shadow < 1.5 * body_size:
+                    logger.info("🚫 [REVERSAL VETO] Sinyal BUY dibatalkan karena Pin Bar tidak ditutup dengan penolakan bullish yang memadai.")
+                    bull_matches = []
+            elif (c_close < c_open or c_close < (p_open + p_close) / 2):
+                logger.info("🚫 [REVERSAL VETO] Sinyal BUY dibatalkan karena bar penutupan tidak mengonfirmasi rejeksi bullish solid.")
+                bull_matches = []
 
         # D. Anti-Falling Knife & Momentum Collapse Veto:
-        # Dilarang BUY jika MACD sedang Death Cross aktif (Bearish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup hijau dengan sumbu pantulan nyata, bullish engulfing, atau dorongan momentum bullish solid
+        # Dilarang BUY jika MACD sedang Death Cross aktif (Bearish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup hijau dengan sumbu pantulan nyata, bullish engulfing, dorongan momentum bullish solid, atau histogram MACD menanjak saat tren 15m Bullish
         elif cur_macd < cur_signal:
+            cur_macd_hist = cur_macd - cur_signal
+            prev_macd_hist = prev_macd - prev_signal
             is_valid_bull_rejection = (
                 has_pure_bull_candle and c_close > c_open and (
                     lower_shadow >= 0.18 * c_range or
                     is_bullish_engulfing or
-                    body_size >= 0.40 * c_range
+                    body_size >= 0.40 * c_range or
+                    (cur_macd_hist > prev_macd_hist and is_15m_bull)
                 )
             )
             if not is_valid_bull_rejection:
@@ -1650,14 +1700,19 @@ class LiveMarketScanner:
                 if vwap_upper_2 is not None and vwap_upper_2 > c_close:
                     overhead_res_candidates.append(("VWAP +2σ", vwap_upper_2))
                 if nearest_res is not None and nearest_res > c_close:
-                    overhead_res_candidates.append(("SMC Resistance", nearest_res))
+                    res_gap = nearest_res - c_close
+                    is_manual_res = nearest_res in smc_engine.get_manual_levels(symbol)
+                    # Hanya hitung resistance jika level manual atau jaraknya >= 0.50*ATR atau jika tren 15m bukan Bullish
+                    if is_manual_res or res_gap >= (0.50 * smc_data.get("atr_val", 0.001)) or not is_15m_bull:
+                        overhead_res_candidates.append(("SMC Resistance", nearest_res))
 
                 if overhead_res_candidates and not has_bull_continuation:
                     res_name, res_lvl = min(overhead_res_candidates, key=lambda x: x[1])
                     headroom = res_lvl - c_close
-                    if headroom < min_headroom:
+                    eff_min_headroom = max(sl_dist * 0.25, 1.5 * pip_unit) if is_15m_bull else min_headroom
+                    if headroom < eff_min_headroom:
                         headroom_pips = headroom / pip_unit
-                        min_headroom_pips = min_headroom / pip_unit
+                        min_headroom_pips = eff_min_headroom / pip_unit
                         logger.info(
                             "🚫 [RESISTANCE PROXIMITY VETO] Sinyal BUY dibatalkan karena jarak ke Resistance terdekat terlalu sempit (%s: %.5f, Headroom: %.1f pips < Minimal: %.1f pips).",
                             res_name, res_lvl, headroom_pips, min_headroom_pips
@@ -1678,14 +1733,19 @@ class LiveMarketScanner:
                 if vwap_lower_2 is not None and vwap_lower_2 < c_close:
                     floor_sup_candidates.append(("VWAP -2σ", vwap_lower_2))
                 if nearest_sup is not None and nearest_sup < c_close:
-                    floor_sup_candidates.append(("SMC Support", nearest_sup))
+                    sup_gap = c_close - nearest_sup
+                    is_manual_sup = nearest_sup in smc_engine.get_manual_levels(symbol)
+                    # Hanya hitung support jika level manual atau jaraknya >= 0.50*ATR atau jika tren 15m bukan Bearish
+                    if is_manual_sup or sup_gap >= (0.50 * smc_data.get("atr_val", 0.001)) or not is_15m_bear:
+                        floor_sup_candidates.append(("SMC Support", nearest_sup))
 
                 if floor_sup_candidates and not has_bear_continuation:
                     sup_name, sup_lvl = max(floor_sup_candidates, key=lambda x: x[1])
                     headroom = c_close - sup_lvl
-                    if headroom < min_headroom:
+                    eff_min_headroom = max(sl_dist * 0.25, 1.5 * pip_unit) if is_15m_bear else min_headroom
+                    if headroom < eff_min_headroom:
                         headroom_pips = headroom / pip_unit
-                        min_headroom_pips = min_headroom / pip_unit
+                        min_headroom_pips = eff_min_headroom / pip_unit
                         logger.info(
                             "🚫 [SUPPORT PROXIMITY VETO] Sinyal SELL dibatalkan karena jarak ke Support terdekat terlalu sempit (%s: %.5f, Headroom: %.1f pips < Minimal: %.1f pips).",
                             sup_name, sup_lvl, headroom_pips, min_headroom_pips

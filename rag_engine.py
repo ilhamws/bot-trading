@@ -5,6 +5,7 @@ from pathlib import Path
 import json
 import time
 import re
+import requests
 from pydantic import BaseModel, Field
 import chromadb
 from chromadb.utils import embedding_functions
@@ -341,15 +342,15 @@ ATURAN KRITIS & LOGIKA KONFLUENSI TINGGI:
 2. Syarat Eksekusi Sinyal BUY (Wajib Memenuhi Minimal 2-3 Konfluensi Grade-A):
    - Tindakan 'BUY' HANYA BOLEH DIBERIKAN jika kriteria bullish Grade-A berikut terkonfirmasi secara bersamaan:
      * Pola Candlestick Reversal / Continuation / Struktur Bullish Terkonfirmasi (Bullish Engulfing, Hammer, Inverted Hammer, Morning Star, Piercing Line, Tweezer Bottom, Three White Soldiers, Three Inside Up, Bullish Dynamic EMA Pullback, Role Reversal RBS, Institutional VWAP Bounce/Reversion, Bullish Breaker Block)
-     * Area Rejeksi Kuat (Bollinger Lower Band Support / FVG Bullish Retest / Order Block / Breaker Block / Role Reversal RBS / VWAP -2σ / Fibonacci Golden Pocket 0.50-0.618)
-     * Konfirmasi Momentum Bullish (Stochastic Oversold < 30 & Golden Cross, atau Bullish RSI Divergence, atau MACD Golden Cross)
+     * Area Rejeksi Kuat (Bollinger Lower Band Support / Dynamic EMA 20/50 / FVG Bullish Retest / Order Block / Breaker Block / Role Reversal RBS / VWAP -2σ / Fibonacci Golden Pocket 0.50-0.65)
+     * Konfirmasi Momentum Bullish (Stochastic Oversold < 30 & Golden Cross, atau Bullish RSI Divergence, atau MACD Golden Cross, ATAU Histogram MACD menanjak naik cur_hist > prev_hist saat Pullback tren Bullish)
      * Keselarasan Tren Mayor (Harga di atas EMA 200 atau MTF 15m Grade-A Searah Bullish)
    - Skor kepercayaan (confidence_score) minimal adalah 0.85. Jika di bawah 0.85, WAJIB BERIKAN 'WAIT'.
 3. Syarat Eksekusi Sinyal SELL (Wajib Memenuhi Minimal 2-3 Konfluensi Grade-A):
    - Tindakan 'SELL' HANYA BOLEH DIBERIKAN jika kriteria bearish Grade-A berikut terkonfirmasi secara bersamaan:
      * Pola Candlestick Reversal / Continuation / Struktur Bearish Terkonfirmasi (Bearish Engulfing, Shooting Star, Hanging Man, Evening Star, Dark Cloud Cover, Tweezer Top, Three Black Crows, Three Inside Down, Bearish Dynamic EMA Pullback, Role Reversal SBR, Institutional VWAP Rejection, Bearish Breaker Block)
-     * Area Rejeksi Kuat (Bollinger Upper Band Resistance / FVG Bearish Retest / Order Block / Breaker Block / Role Reversal SBR / VWAP +2σ / Fibonacci Golden Pocket 0.50-0.618 Rejection)
-     * Konfirmasi Momentum Bearish (Stochastic Overbought > 70 & Death Cross, atau Bearish RSI Divergence, atau MACD Death Cross)
+     * Area Rejeksi Kuat (Bollinger Upper Band Resistance / Dynamic EMA 20/50 / FVG Bearish Retest / Order Block / Breaker Block / Role Reversal SBR / VWAP +2σ / Fibonacci Golden Pocket 0.50-0.65 Rejection)
+     * Konfirmasi Momentum Bearish (Stochastic Overbought > 70 & Death Cross, atau Bearish RSI Divergence, atau MACD Death Cross, ATAU Histogram MACD menurun cur_hist < prev_hist saat Retest tren Bearish)
      * Keselarasan Tren Mayor (Harga di bawah EMA 200 atau MTF 15m Grade-A Searah Bearish)
    - Skor kepercayaan (confidence_score) minimal adalah 0.85. Jika di bawah 0.85, WAJIB BERIKAN 'WAIT'.
 
@@ -358,9 +359,9 @@ ATURAN PANTANGAN MUTLAK (HARD VETO - WAJIB KEPUTUSAN 'WAIT'):
    - DILARANG KERAS memberikan sinyal SELL jika MTF 15m menunjukkan tren Uptrend kuat di atas EMA 200.
    - DILARANG KERAS memberikan sinyal BUY jika MTF 15m menunjukkan tren Downtrend kuat di bawah EMA 200.
 2. DILARANG MENANGKAP PISAU JATUH (ANTI-FALLING KNIFE & MOMENTUM CONFLICT):
-   - DILARANG BUY jika MACD berada dalam kondisi Death Cross / momentum Bearish tajam DAN candle bar penutupan masih berwarna merah.
+   - DILARANG BUY jika MACD berada dalam kondisi Death Cross / momentum Bearish tajam DAN candle bar penutupan masih berwarna merah tanpa sumbu penolakan bawah. (Pengecualian: BUY sah saat koreksi tren naik 15m jika bar ditutup hijau atau membentuk Pin Bar solid di EMA 20/50/FVG/Support dan Histogram MACD mulai menanjak).
    - DILARANG BUY jika RSI sedang terjun bebas (< 20) tanpa adanya ekor penolakan bawah yang solid (lower wick >= 40%).
-   - DILARANG SELL jika MACD berada dalam kondisi Golden Cross / momentum Bullish tajam DAN candle bar penutupan masih berwarna hijau.
+   - DILARANG SELL jika MACD berada dalam kondisi Golden Cross / momentum Bullish tajam DAN candle bar penutupan masih berwarna hijau tanpa sumbu penolakan atas. (Pengecualian: SELL sah saat koreksi tren turun 15m jika bar ditutup merah atau membentuk Pin Bar solid di EMA 20/50/FVG/Resistance dan Histogram MACD mulai melemah/menurun).
    - DILARANG SELL jika RSI sedang melonjak tinggi (> 80) tanpa adanya ekor penolakan atas yang solid (upper wick >= 40%).
 3. FILTER JARAK STOP LOSS:
    - Jika jarak Stop Loss terlalu sempit (< 4.0 pips) atau rasio Risk-to-Reward di bawah 1:1.5, tolak dan berikan 'WAIT'.
@@ -372,32 +373,32 @@ ATURAN VALIDASI MUTLAK POLA CANDLESTICK, CHART PATTERNS & 5 PILAR TEKNIKAL LANJU
      * Terdiri dari Candle 1 (merah/bearish) dan Candle 2 (hijau/bullish solid).
      * Body Candle 2 WAJIB MENELAN SELURUH BODY Candle 1 (Close2 >= Open1 dan Open2 <= Close1, serta Body2 >= Body1).
      * Jika Candle 2 memiliki sumbu atas wajar namun body-nya menelan Candle 1, pola tersebut 100% ADALAH BULLISH ENGULFING, BUKAN INVERTED HAMMER!
-   - Hammer (Formasi 1-Candle Pin Bar Bullish Reversal):
-     * HANYA VALID jika bar SUDAH DITUTUP (CONFIRMED CLOSED BAR) pada Tren Turun (Downtrend) di area Support.
-     * Sumbu bawah panjang minimal 1x panjang body (>= 1.0x body dan >= 40% range candle).
-     * Body berada di bagian atas candle (<= 50% range candle).
-     * Sumbu atas kecil atau nihil (<= 10% range candle).
+   - Hammer (Formasi 1-Candle Pin Bar Bullish Reversal / Support Bounce):
+     * HANYA VALID jika bar SUDAH DITUTUP (CONFIRMED CLOSED BAR) pada Tren Turun atau Pullback ke area Support / Dynamic EMA 20/50 / FVG / RBS.
+     * Sumbu bawah panjang minimal 2x panjang body (>= 2.0x body dan >= 55% range candle).
+     * Body berada di bagian atas candle (<= 35% range candle).
+     * Sumbu atas kecil atau minimalis (<= 8% range candle dan <= 0.35x body).
+     * Pola 1-candle ini TIDAK mewajibkan harga penutupan menembus titik tengah 50% candle sebelumnya karena penolakan terjadi via sumbu bawah panjang.
    - Inverted Hammer (Formasi 1-Candle Pin Bar):
-     * HANYA VALID jika bar SUDAH DITUTUP (CONFIRMED CLOSED BAR) pada Tren Turun (Downtrend). Dilarang menyimpulkan saat candle masih berjalan/open!
-     * RSI WAJIB di area bawah (RSI <= 50.0). DILARANG KERAS BUY jika RSI > 50 apalagi RSI >= 60.
+     * HANYA VALID jika bar SUDAH DITUTUP (CONFIRMED CLOSED BAR) pada Tren Turun atau Pullback Support.
+     * RSI wajar berada di area bawah (RSI <= 60.0 pada uptrend pullback, atau <= 50.0 pada pembalikan tren turun).
      * Body berukuran KECIL di dasar candle (<= 35% rentang candle).
-     * Sumbu atas panjang mendominasi minimal 2x panjang body (>= 50% range).
-     * Di bawah body TIDAK BOLEH ADA GARIS / SHADOW (lower shadow = 0 / nihil).
-     * Berada di area Support / Lower Band Bollinger, dan TIDAK MENELAN body candle sebelumnya.
+     * Sumbu atas panjang mendominasi minimal 2x panjang body (>= 55% range).
+     * Sumbu bawah sangat minimalis (<= 8% range candle dan <= 0.35x body).
+     * Pola 1-candle ini TIDAK mewajibkan harga penutupan menembus 50% midpoint candle sebelumnya.
    - Bearish Engulfing (Formasi 2-Candle):
      * Terdiri dari Candle 1 (hijau/bullish) dan Candle 2 (merah/bearish solid).
      * Body Candle 2 WAJIB MENELAN SELURUH BODY Candle 1 (Close2 <= Open1 dan Open2 >= Close1, serta Body2 >= Body1).
      * Dilarang salah melabeli Bearish Engulfing sebagai Shooting Star jika body menelan candle sebelumnya!
    - Shooting Star (Formasi 1-Candle Pin Bar):
-     * HANYA VALID jika bar SUDAH DITUTUP (CONFIRMED CLOSED BAR) pada Tren Naik (Uptrend). Dilarang menyimpulkan saat candle masih berjalan/open!
-     * RSI WAJIB di area atas (RSI >= 50.0). DILARANG KERAS SELL jika RSI < 50.
+     * HANYA VALID jika bar SUDAH DITUTUP (CONFIRMED CLOSED BAR) pada Tren Naik atau Retest Resistance / EMA 20/50 / FVG / SBR.
+     * RSI wajar (RSI >= 40.0 pada downtrend retest, atau >= 50.0 pada pembalikan tren naik).
      * Body berukuran KECIL di dasar candle (<= 35% rentang candle) dan TIDAK MENELAN candle sebelumnya.
-     * Sumbu atas panjang minimal 2x body, tanpa garis di bawah body, muncul saat Uptrend.
-     * Berada di area Resistance / Upper Band Bollinger.
-   - Hanging Man (Formasi 1-Candle Pin Bar Bearish Reversal di Puncak Uptrend):
-     * HANYA VALID jika didahului Tren Naik dan candle sebelumnya WAJIB HIJAU/BULLISH (Close1 > Open1)! DILARANG KERAS mengidentifikasi Hanging Man jika candle sebelumnya sudah merah/bearish!
-     * Berada di puncak lokal kenaikan (High2 >= High1).
-     * Sumbu atas WAJIB SANGAT KECIL ATAU NIHIL (<= 8% rentang candle dan <= 0.35x body). Jika sumbu atas panjang, pola tersebut BUKAN HANGING MAN (TOLAK / Action: 'WAIT')!
+     * Sumbu atas panjang minimal 2x body (>= 55% range), sumbu bawah minimalis (<= 8% range).
+     * Pola 1-candle ini TIDAK mewajibkan penutupan menembus 50% midpoint candle sebelumnya.
+   - Hanging Man (Formasi 1-Candle Pin Bar Bearish Reversal di Puncak Uptrend / Resistance):
+     * HANYA VALID jika didahului kenaikan dan candle sebelumnya WAJIB HIJAU/BULLISH (Close1 > Open1)!
+     * Sumbu atas WAJIB SANGAT KECIL (<= 8% rentang candle dan <= 0.35x body).
      * Sumbu bawah panjang mendominasi minimal 2x body (>= 55% rentang candle).
      * Body berukuran KECIL di puncak candle (<= 35% rentang candle).
      * Berada di area Resistance / Upper Bollinger Band (RSI >= 55.0).
@@ -467,7 +468,17 @@ ATURAN KALKULASI HARGA ENTRY, STOP LOSS (SL), DAN TAKE PROFIT (TP) BERBASIS VOLA
             self._init_chroma()
         else:
             logger.info("RAG Engine reusing provided ChromaDB collection '%s' (%d records).", self.collection_name, self.collection.count())
+        self._init_vultr()
         self._init_gemini()
+
+    def _init_vultr(self) -> None:
+        """Initialize Vultr Serverless Inference configuration (DeepSeek V4.1 Flash)."""
+        self.vultr_api_key = settings.VULTR_API_KEY
+        self.vultr_model = settings.VULTR_MODEL or "deepseek-v4.1-flash-1017"
+        self.vultr_base_url = settings.VULTR_BASE_URL or "https://api.vultrinference.com/v1"
+        self.ai_provider = getattr(settings, "AI_PROVIDER", "vultr").lower()
+        if self.vultr_api_key:
+            logger.info("Initialized Vultr Serverless Inference (Model: '%s', BaseURL: %s)", self.vultr_model, self.vultr_base_url)
 
     def _init_chroma(self) -> None:
         """Connect to local ChromaDB persistent collection."""
@@ -506,6 +517,150 @@ ATURAN KALKULASI HARGA ENTRY, STOP LOSS (SL), DAN TAKE PROFIT (TP) BERBASIS VOLA
         except Exception as exc:
             logger.error("Failed to initialize Google GenAI Client: %s", exc)
             self.gemini_client = None
+
+    def _call_vultr_ai(
+        self,
+        user_prompt: str,
+        symbol: str,
+        timeframe: str,
+        formatted_price_str: str,
+        payload: Dict[str, Any],
+    ) -> Optional[TradingSignalDecision]:
+        """Invoke Vultr Serverless Inference (DeepSeek V4.1 Flash) using OpenAI-compatible API."""
+        if not self.vultr_api_key:
+            return None
+
+        url = f"{self.vultr_base_url.rstrip('/')}/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {self.vultr_api_key}",
+            "Content-Type": "application/json",
+        }
+
+        json_schema_prompt = (
+            "Kembalikan HANYA sebuah objek JSON valid persis dengan skema berikut:\n"
+            "{\n"
+            f'  "instrument": "{symbol}",\n'
+            f'  "timeframe": "{timeframe}",\n'
+            '  "action": "BUY" | "SELL" | "WAIT",\n'
+            f'  "current_price": "{formatted_price_str}",\n'
+            '  "entry_zone": "string",\n'
+            '  "stop_loss": "string",\n'
+            '  "take_profit": "string",\n'
+            '  "risk_reward_ratio": "string (misal 1:1.50)",\n'
+            '  "sop_reference": "string (judul SOP)",\n'
+            '  "technical_breakdown": "string (analisis teknikal objektif Bahasa Indonesia)",\n'
+            '  "confidence_score": 0.0 - 1.0\n'
+            "}"
+        )
+
+        sys_content = f"{self.SYSTEM_PROMPT}\n\n{json_schema_prompt}"
+
+        req_body = {
+            "model": self.vultr_model,
+            "messages": [
+                {"role": "system", "content": sys_content},
+                {"role": "user", "content": user_prompt},
+            ],
+            "response_format": {"type": "json_object"},
+            "temperature": 0.1,
+            "max_tokens": 4096,
+        }
+
+        try:
+            logger.info("Mengirim evaluasi pasar ke Vultr DeepSeek (%s)...", self.vultr_model)
+            resp = requests.post(url, headers=headers, json=req_body, timeout=25)
+            if resp.status_code != 200:
+                logger.warning("Vultr Inference API error: %d - %s", resp.status_code, resp.text[:200])
+                return None
+
+            res_json = resp.json()
+            choices = res_json.get("choices", [])
+            if not choices:
+                return None
+
+            content = choices[0].get("message", {}).get("content", "").strip()
+            if content.startswith("```"):
+                content = re.sub(r"^```(?:json)?", "", content)
+                content = re.sub(r"```$", "", content).strip()
+
+            parsed = json.loads(content)
+            act = str(parsed.get("action", "WAIT")).upper().strip()
+            if act not in ("BUY", "SELL", "WAIT"):
+                act = "WAIT"
+            parsed["action"] = act
+            parsed["instrument"] = symbol
+            parsed["timeframe"] = timeframe
+            parsed["current_price"] = formatted_price_str
+            parsed["pattern_name"] = str(payload.get("reason", ""))
+            parsed["indicator_status"] = str(payload.get("indicator_status", ""))
+            parsed["notes_detail"] = str(payload.get("notes", ""))
+            parsed["bar_timestamp"] = str(payload.get("timestamp", ""))
+
+            decision = TradingSignalDecision(**parsed)
+            logger.info(
+                "🚀 Vultr DeepSeek Verdict for %s (%s): %s [Confidence: %.2f]",
+                decision.instrument,
+                decision.timeframe,
+                decision.action,
+                decision.confidence_score,
+            )
+            if decision.sop_reference:
+                logger.info("📚 Referensi SOP: %s", decision.sop_reference)
+            if decision.technical_breakdown:
+                logger.info("📝 Detail Alasan & Analisis DeepSeek:\n%s", decision.technical_breakdown)
+            return decision
+
+        except Exception as e:
+            logger.error("Gagal mengeksekusi Vultr DeepSeek Inference: %s", e)
+            return None
+
+    def generate_text(self, prompt: str, max_tokens: int = 1000, system_prompt: Optional[str] = None) -> str:
+        """Generate analysis or reflection text using Vultr DeepSeek with Gemini fallback."""
+        if self.vultr_api_key:
+            try:
+                url = f"{self.vultr_base_url.rstrip('/')}/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {self.vultr_api_key}",
+                    "Content-Type": "application/json",
+                }
+                messages = []
+                if system_prompt:
+                    messages.append({"role": "system", "content": system_prompt})
+                messages.append({"role": "user", "content": prompt})
+
+                req_body = {
+                    "model": self.vultr_model,
+                    "messages": messages,
+                    "temperature": 0.2,
+                    "max_tokens": max(max_tokens, 2048),
+                }
+                resp = requests.post(url, headers=headers, json=req_body, timeout=25)
+                if resp.status_code == 200:
+                    res_json = resp.json()
+                    choices = res_json.get("choices", [])
+                    if choices:
+                        return choices[0].get("message", {}).get("content", "").strip()
+            except Exception as e:
+                logger.warning("Vultr text generation failed: %s. Trying Gemini fallback...", e)
+
+        if self.gemini_client:
+            try:
+                from google.genai import types
+                response = self.gemini_client.models.generate_content(
+                    model=settings.GEMINI_MODEL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
+                        temperature=0.2,
+                        max_output_tokens=max_tokens,
+                    ),
+                )
+                if response.text:
+                    return response.text.strip()
+            except Exception as e:
+                logger.warning("Gemini text generation failed: %s", e)
+
+        return ""
 
     def retrieve_relevant_rules(self, query_text: str, top_k: Optional[int] = None) -> List[Dict[str, Any]]:
         """Retrieve top-k most relevant trading rules for the current market situation."""
@@ -614,11 +769,12 @@ RETRIEVED TRADING SOP RULES:
 TASK:
 Examine the setup strictly against the SOP rules above and system instructions.
 Important Rules & Confluences:
-1. SCALPING MACD RULE:
-   - Posisi SELL dilarang HANYA jika MACD baru saja mengalami Golden Cross segar (Fresh Cross 1-2 bar terakhir). Jika MACD masih bullish namun momentum melandai atau ada pola Reversal/Divergence di area Resistance, sinyal SELL tetap DIIZINKAN.
-   - Posisi BUY dilarang HANYA jika MACD baru saja mengalami Death Cross segar (Fresh Cross 1-2 bar terakhir). Jika MACD masih bearish namun momentum melandai atau ada pola Reversal/Divergence di area Support, sinyal BUY tetap DIIZINKAN.
+1. SCALPING MACD & PULLBACK RULE:
+   - Posisi SELL dilarang HANYA jika MACD baru saja mengalami Golden Cross segar (Fresh Cross 1-2 bar terakhir). Jika MACD masih bullish namun momentum melandai, atau harga retest ke EMA 20/50 / FVG / Resistance dengan pola Reversal/Divergence, sinyal SELL tetap DIIZINKAN.
+   - Posisi BUY dilarang HANYA jika MACD baru saja mengalami Death Cross segar (Fresh Cross 1-2 bar terakhir). Jika MACD masih bearish namun momentum melandai, atau harga pullback ke EMA 20/50 / FVG / Support dengan pola Reversal/Divergence, sinyal BUY tetap DIIZINKAN.
+   - Jika harga sedang melakukan koreksi/pullback dalam tren mayor 15m/1H searah ke EMA 20/50, FVG, atau RBS/SBR dengan pola candlestick Steve Nison terkonfirmasi, setup ini adalah High-Probability Trend Continuation dan SAH dieksekusi (BUKAN pisau jatuh).
 2. 5 ADVANCED TECHNICAL PILLARS & CONFLUENCES:
-   - Chart Patterns (H&S, Inv H&S, Bull/Bear Flags, Triangles), RSI Divergence (Regular/Hidden), Fibonacci Golden Pocket (0.50-0.618 OTE), Bollinger Squeeze Breakout, dan Sesi ICT Killzone (London/NY) diakui sebagai konfluensi Grade-A bernilai tinggi.
+   - Chart Patterns (H&S, Inv H&S, Bull/Bear Flags, Triangles), RSI Divergence (Regular/Hidden), Fibonacci Golden Pocket (0.50-0.65 OTE), Dynamic EMA 20/50 Pullback, Role Reversal RBS/SBR, VWAP Bands (±2σ), Breaker Block, Bollinger Squeeze Breakout, dan Sesi ICT Killzone (London/NY) diakui sebagai konfluensi Grade-A bernilai tinggi.
 3. ANTI COUNTER-TREND HARD VETO:
    - DILARANG memberikan sinyal transaksi yang melawan arah tren mayor MTF (15m / 1H). Jika terdapat indikasi atau peringatan counter-trend, WAJIB berikan keputusan 'WAIT'.
 4. ACTION BUY / SELL:
@@ -628,7 +784,19 @@ Important Rules & Confluences:
 Ensure all required fields are populated accurately.
 """
 
-        # 4. Invoke LLM or Fallback
+        # 4. Invoke LLM: Prioritize Vultr Serverless Inference (DeepSeek V4.1 Flash)
+        if self.ai_provider == "vultr" or getattr(self, "vultr_api_key", None):
+            vultr_decision = self._call_vultr_ai(
+                user_prompt=user_prompt,
+                symbol=symbol,
+                timeframe=timeframe,
+                formatted_price_str=formatted_price_str,
+                payload=payload,
+            )
+            if vultr_decision is not None:
+                return vultr_decision
+            logger.warning("Vultr DeepSeek evaluation failed or returned None. Falling back to Gemini Cloud...")
+
         if not self.gemini_client:
             logger.warning("Gemini Client inactive. Returning cautious WAIT signal.")
             wait_decision = TradingSignalDecision(

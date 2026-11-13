@@ -59,3 +59,27 @@ Pendekatan Smart Money Concepts (SMC) dan Inner Circle Trader (ICT) berfokus pad
 * **Timeframe Tinggi (H4 / H1):** Menentukan arah tren institusional, letak Order Block mayor, dan FVG mayor.
 * **Timeframe Menengah (M15):** Menentukan struktur pasar lokal (BOS / CHoCH).
 * **Timeframe Pemicu (M5 / M1):** Menentukan titik entri presisi saat harga menyentuh FVG M15/H1 yang terkonfirmasi pola pembalikan Grade-A.
+
+---
+
+## 7. INSTITUTIONAL BREAKER BLOCK (FAILED SUPPLY/DEMAND FLIP)
+1. **Definisi Breaker Block:**
+   - Breaker Block adalah Order Block yang gagal menahan harga dan ditembus secara impulsif, lalu bertukar fungsi (*flip*) menjadi area pertahanan arah yang baru.
+2. **Bullish Breaker Block (BUY):**
+   - Order Block Bearish yang tertembus ke atas saat terjadi pergerakan impulsif (BOS).
+   - Ketika harga retrace kembali menguji atap Breaker Block tersebut, area ini berubah menjadi support kuat untuk BUY.
+3. **Bearish Breaker Block (SELL):**
+   - Order Block Bullish yang tertembus ke bawah saat pergerakan drop impulsif.
+   - Ketika harga pullback naik menguji lantai Breaker Block tersebut, area ini berubah menjadi resistance kuat untuk SELL.
+
+---
+
+## 8. STRATEGI PASCA-BERITA (POST-NEWS TREND CONTINUATION DRIFT 15 - 120 MENIT)
+1. **Fase Blackout (0 - 15 Menit):**
+   - Dilarang keras membuka posisi baru saat rilis berita High-Impact untuk menghindari slippage eksekusi dan pelebaran spread broker.
+2. **Fase Post-News Drift (15 - 120 Menit):**
+   - Arah pasar didikte oleh dorongan volume fundamental besar (*institutional news drift*).
+   - **Aturan Pantangan Mutlak:** Dilarang keras membuka posisi berlawanan arah dengan impuls berita (*anti-falling knife*).
+   - **Syarat Entri Pullback / Retest:**
+     - Entri searah impuls berita hanya diizinkan saat harga melakukan koreksi sehat (*pullback*) ke EMA-20/50, Fair Value Gap (FVG), atau Breaker Block.
+     - Wajib disertai konfirmasi candlestick rejection Steve Nison dan rasio Risk-to-Reward minimal 1 : 1.5.
