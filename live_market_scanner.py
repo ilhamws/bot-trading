@@ -1478,9 +1478,16 @@ class LiveMarketScanner:
             bear_matches = []
 
         # D. Anti-Rocket & Momentum Collision Veto:
-        # Dilarang SELL jika MACD sedang Golden Cross aktif (Bullish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup merah dengan sumbu penolakan atas nyata
+        # Dilarang SELL jika MACD sedang Golden Cross aktif (Bullish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup merah dengan sumbu penolakan atas nyata, bearish engulfing, atau dorongan momentum bearish solid
         elif cur_macd > cur_signal:
-            if not (has_pure_bear_candle and c_close < c_open and upper_shadow >= 0.25 * c_range):
+            is_valid_bear_rejection = (
+                has_pure_bear_candle and c_close < c_open and (
+                    upper_shadow >= 0.18 * c_range or
+                    is_bearish_engulfing or
+                    body_size >= 0.40 * c_range
+                )
+            )
+            if not is_valid_bear_rejection:
                 logger.info("🚫 [MOMENTUM VETO] Sinyal SELL dibatalkan karena bertabrakan dengan MACD Bullish Golden Cross tanpa konfirmasi candlestick reversal murni solid.")
                 bear_matches = []
         elif cur_rsi > 78.0 and upper_shadow < 0.35 * c_range:
@@ -1525,9 +1532,16 @@ class LiveMarketScanner:
             bull_matches = []
 
         # D. Anti-Falling Knife & Momentum Collapse Veto:
-        # Dilarang BUY jika MACD sedang Death Cross aktif (Bearish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup hijau dengan sumbu pantulan nyata
+        # Dilarang BUY jika MACD sedang Death Cross aktif (Bearish Momentum), KECUALI jika ada konfirmasi pola candlestick reversal murni solid yang ditutup hijau dengan sumbu pantulan nyata, bullish engulfing, atau dorongan momentum bullish solid
         elif cur_macd < cur_signal:
-            if not (has_pure_bull_candle and c_close > c_open and lower_shadow >= 0.25 * c_range):
+            is_valid_bull_rejection = (
+                has_pure_bull_candle and c_close > c_open and (
+                    lower_shadow >= 0.18 * c_range or
+                    is_bullish_engulfing or
+                    body_size >= 0.40 * c_range
+                )
+            )
+            if not is_valid_bull_rejection:
                 logger.info("🚫 [MOMENTUM VETO] Sinyal BUY dibatalkan karena bertabrakan dengan MACD Bearish Death Cross tanpa konfirmasi candlestick reversal murni solid.")
                 bull_matches = []
         elif cur_rsi < 22.0 and lower_shadow < 0.35 * c_range:
@@ -1588,13 +1602,13 @@ class LiveMarketScanner:
 
         # Anti-Opposing Golden Pocket Veto: Dilarang BUY jika tepat menabrak Bearish Golden Pocket; Dilarang SELL jika di Bullish Golden Pocket
         has_opposing_bear_gp = "Fibonacci Golden Pocket 0.618 (Optimal Bearish Rejection)" in adv_tech.get("bear_confluences", [])
-        if has_opposing_bear_gp and bull_matches:
-            logger.info("🚫 [GOLDEN POCKET VETO] Sinyal BUY dibatalkan karena harga berada di dalam zona penolakan Fibonacci Bearish Golden Pocket (0.50-0.618).")
+        if has_opposing_bear_gp and bull_matches and not has_bull_continuation:
+            logger.info("🚫 [GOLDEN POCKET VETO] Sinyal BUY dibatalkan karena harga berada di dalam zona penolakan Fibonacci Bearish Golden Pocket (0.58-0.65).")
             bull_matches = []
 
         has_opposing_bull_gp = "Fibonacci Golden Pocket 0.618 (Optimal Trade Entry)" in adv_tech.get("bull_confluences", [])
-        if has_opposing_bull_gp and bear_matches:
-            logger.info("🚫 [GOLDEN POCKET VETO] Sinyal SELL dibatalkan karena harga berada di dalam zona pantulan Fibonacci Bullish Golden Pocket (0.50-0.618).")
+        if has_opposing_bull_gp and bear_matches and not has_bear_continuation:
+            logger.info("🚫 [GOLDEN POCKET VETO] Sinyal SELL dibatalkan karena harga berada di dalam zona pantulan Fibonacci Bullish Golden Pocket (0.58-0.65).")
             bear_matches = []
 
         # Anti-Proximity Veto (Anti-Buying into Resistance & Anti-Selling into Support):
@@ -1615,7 +1629,7 @@ class LiveMarketScanner:
         else:
             pip_unit = 0.0001
 
-        min_headroom = max(sl_dist * 0.75, 2.5 * pip_unit)
+        min_headroom = max(sl_dist * 0.40, 2.0 * pip_unit)
         vwap_upper_2 = adv_tech.get("vwap_upper_2")
         vwap_lower_2 = adv_tech.get("vwap_lower_2")
         nearest_res = smc_data.get("nearest_res")
@@ -1623,8 +1637,8 @@ class LiveMarketScanner:
 
         # 1. EVALUASI HEADROOM UNTUK BUY (CEK ATAP RESISTANCE)
         if bull_matches:
-            # Veto jika harga telah mencapai atau berada di atas batas VWAP +2σ (Statistical Premium Overextension)
-            if vwap_upper_2 is not None and c_close >= vwap_upper_2 - (0.5 * pip_unit):
+            # Veto jika harga telah mencapai atau berada di atas batas VWAP +2σ (Statistical Premium Overextension) KECUALI jika didukung kelanjutan tren terkonfirmasi
+            if vwap_upper_2 is not None and c_close >= vwap_upper_2 - (0.5 * pip_unit) and not has_bull_continuation:
                 logger.info(
                     "🚫 [RESISTANCE PROXIMITY VETO] Sinyal BUY dibatalkan karena harga telah menyentuh/melampaui zona atap VWAP +2σ (Close: %.5f >= VWAP +2σ: %.5f).",
                     c_close, vwap_upper_2
@@ -1637,7 +1651,7 @@ class LiveMarketScanner:
                 if nearest_res is not None and nearest_res > c_close:
                     overhead_res_candidates.append(("SMC Resistance", nearest_res))
 
-                if overhead_res_candidates:
+                if overhead_res_candidates and not has_bull_continuation:
                     res_name, res_lvl = min(overhead_res_candidates, key=lambda x: x[1])
                     headroom = res_lvl - c_close
                     if headroom < min_headroom:
@@ -1651,8 +1665,8 @@ class LiveMarketScanner:
 
         # 2. EVALUASI HEADROOM UNTUK SELL (CEK LANTAI SUPPORT)
         if bear_matches:
-            # Veto jika harga telah mencapai atau berada di bawah batas VWAP -2σ (Statistical Discount Overextension)
-            if vwap_lower_2 is not None and c_close <= vwap_lower_2 + (0.5 * pip_unit):
+            # Veto jika harga telah mencapai atau berada di bawah batas VWAP -2σ (Statistical Discount Overextension) KECUALI jika didukung kelanjutan tren terkonfirmasi
+            if vwap_lower_2 is not None and c_close <= vwap_lower_2 + (0.5 * pip_unit) and not has_bear_continuation:
                 logger.info(
                     "🚫 [SUPPORT PROXIMITY VETO] Sinyal SELL dibatalkan karena harga telah menyentuh/melampaui zona lantai VWAP -2σ (Close: %.5f <= VWAP -2σ: %.5f).",
                     c_close, vwap_lower_2
@@ -1665,7 +1679,7 @@ class LiveMarketScanner:
                 if nearest_sup is not None and nearest_sup < c_close:
                     floor_sup_candidates.append(("SMC Support", nearest_sup))
 
-                if floor_sup_candidates:
+                if floor_sup_candidates and not has_bear_continuation:
                     sup_name, sup_lvl = max(floor_sup_candidates, key=lambda x: x[1])
                     headroom = c_close - sup_lvl
                     if headroom < min_headroom:
@@ -1709,16 +1723,19 @@ class LiveMarketScanner:
                 bull_matches = []
                 bear_matches = []
 
-        # Ambang Batas Kualitas: Wajib Minimal 2 Konfluensi Grade-A DENGAN KEWAJIBAN MUTLAK MEMUAT POLA CANDLESTICK FISIK
+        # Ambang Batas Kualitas: Minimal 2 Konfluensi jika Tren 15m Selaras, atau Minimal 3 Konfluensi jika Bias 15m Netral (Konsolidasi)
         pattern_name = None
-        if len(bull_matches) >= 2 and has_pure_bull_candle:
+        min_bull_confluences = 3 if mtf_eval_bull.get("is_neutral_bias") else 2
+        min_bear_confluences = 3 if mtf_eval_bear.get("is_neutral_bias") else 2
+
+        if len(bull_matches) >= min_bull_confluences and has_pure_bull_candle:
             pattern_name = f"BUY ({len(bull_matches)} Konfluensi: {', '.join(bull_matches)})"
-        elif len(bear_matches) >= 2 and has_pure_bear_candle:
+        elif len(bear_matches) >= min_bear_confluences and has_pure_bear_candle:
             pattern_name = f"SELL ({len(bear_matches)} Konfluensi: {', '.join(bear_matches)})"
         else:
-            if len(bull_matches) >= 2 and not has_pure_bull_candle:
+            if len(bull_matches) >= min_bull_confluences and not has_pure_bull_candle:
                 logger.debug("⏳ [%s] %s | Area Nilai Bullish (%d konfluensi) terdeteksi, namun DITOLAK karena belum ada konfirmasi candlestick reversal Steve Nison.", self.interval, symbol, len(bull_matches))
-            elif len(bear_matches) >= 2 and not has_pure_bear_candle:
+            elif len(bear_matches) >= min_bear_confluences and not has_pure_bear_candle:
                 logger.debug("⏳ [%s] %s | Area Nilai Bearish (%d konfluensi) terdeteksi, namun DITOLAK karena belum ada konfirmasi candlestick reversal Steve Nison.", self.interval, symbol, len(bear_matches))
 
         rsi_status = "RSI Oversold" if cur_rsi < 30 else ("RSI Overbought" if cur_rsi > 70 else "RSI Netral")

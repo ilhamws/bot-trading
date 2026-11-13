@@ -291,21 +291,21 @@ class AdvancedTechnicalsEngine:
         if diff < 0.0005:
             return {"bull": [], "bear": [], "note": None}
 
-        # Level Retracement dari Swing Low ke Swing High (Bullish Retracement)
-        fib_50 = swing_high - (0.50 * diff)
-        fib_618 = swing_high - (0.618 * diff)
-        # Golden Pocket Zone: antara fib_618 (bawah) dan fib_50 (atas)
-        if fib_618 <= curr_price <= fib_50:
+        # Level Retracement dari Swing Low ke Swing High (Bullish Retracement ke Zona Diskon 0.58 - 0.65)
+        fib_upper = swing_high - (0.58 * diff)
+        fib_lower = swing_high - (0.65 * diff)
+        # Golden Pocket Zone: Optimal Trade Entry (OTE) diskon 0.58 - 0.65
+        if fib_lower <= curr_price <= fib_upper:
             bull.append("Fibonacci Golden Pocket 0.618 (Optimal Trade Entry)")
-            note = f"Golden Pocket 0.50-0.618 Bullish ({fib_618:.5f} - {fib_50:.5f})"
+            note = f"Golden Pocket 0.58-0.65 Bullish ({fib_lower:.5f} - {fib_upper:.5f})"
 
-        # Level Retracement dari Swing High ke Swing Low (Bearish Retracement / Rally in Downtrend)
-        bear_fib_50 = swing_low + (0.50 * diff)
-        bear_fib_618 = swing_low + (0.618 * diff)
-        # Golden Pocket Zone untuk Sell: antara bear_fib_50 (bawah) dan bear_fib_618 (atas)
-        if bear_fib_50 <= curr_price <= bear_fib_618:
+        # Level Retracement dari Swing High ke Swing Low (Bearish Retracement ke Zona Premium 0.58 - 0.65)
+        bear_fib_lower = swing_low + (0.58 * diff)
+        bear_fib_upper = swing_low + (0.65 * diff)
+        # Golden Pocket Zone untuk Sell: Optimal Bearish Rejection premium 0.58 - 0.65
+        if bear_fib_lower <= curr_price <= bear_fib_upper:
             bear.append("Fibonacci Golden Pocket 0.618 (Optimal Bearish Rejection)")
-            note = f"Golden Pocket 0.50-0.618 Bearish ({bear_fib_50:.5f} - {bear_fib_618:.5f})"
+            note = f"Golden Pocket 0.58-0.65 Bearish ({bear_fib_lower:.5f} - {bear_fib_upper:.5f})"
 
         return {"bull": bull, "bear": bear, "note": note}
 
